@@ -1,0 +1,38 @@
+import { z } from 'zod';
+
+export const RefundResponseSchema = z.object({
+    type: z.string().trim(),
+    rrn: z.string().trim(),
+    coinAmount: z.number(),
+    merchantId: z.string().trim(),
+    operationId: z.string().trim(),
+    ecomOperationId: z.string().trim(),
+    status: z.string().trim(),
+    merchantRequestId: z.string().trim(),
+    transactionCurrency: z.string().trim(),
+    creationDateTime: z.union([z.string(), z.instanceof(Date)]),
+    modificationDateTime: z.union([z.string(), z.instanceof(Date)]),
+    transactionResponseInfo: z.record(z.any(), z.string()),
+    productType: z.string().trim(),
+    hppOrderId: z.string().trim(),
+    transactionType: z.number().optional(),
+    notificationUrl: z.url().optional().or(z.literal('')),
+    notificationEncryption: z.boolean().optional(),
+    rrnOriginal: z.string().optional(),
+    originalOperationId: z.string().optional(),
+    originalCoinAmount: z.number().optional(),
+    originalEcomOperationId: z.string().optional(),
+    notificationSignature: z.boolean().optional(),
+    processingTerminalId: z.string().optional(),
+    processingMerchantId: z.string().optional(),
+    creatorSystem: z.string().optional(),
+    merchantName: z.string().optional(),
+    approvalCode: z.string().optional(),
+    merchantCommission: z.number().optional(),
+    bankCode: z.string().optional(),
+    paymentSystem: z.string().optional(),
+    paymentServiceType: z.string().optional(),
+    externalCardToken: z.string().optional(),
+});
+
+export type RefundResponseDto = z.infer<typeof RefundResponseSchema>;
