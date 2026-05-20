@@ -46,17 +46,13 @@ describe('OrderDataResponseSchema Validation', () => {
             .toThrow(ValidationException);
     });
 
-    it('should fail if any operation in the array is missing a required field (e.g., rrn)', () => {
-        const invalidData = JSON.parse(JSON.stringify(validOrderResponse));
-        delete invalidData.operations[1].rrn;
+    it('should pass if any operation in the array is missing optional fields like rrn', () => {
+        const dataWithoutRrn = JSON.parse(JSON.stringify(validOrderResponse));
+        delete dataWithoutRrn.operations[1].rrn;
 
-        try {
-            DtoValidator.validate(invalidData, OrderDataResponseSchema);
-            expect.toThrow(ValidationException);
-        } catch (e: any) {
-            expect(e).toBeInstanceOf(ValidationException);
-            expect(e.errors[0]).toContain('Invalid input: expected string, received undefined for field operations.1.rrn');
-        }
+        expect(() =>
+            DtoValidator.validate(dataWithoutRrn, OrderDataResponseSchema)
+        ).not.toThrow();
     });
 
     it('should pass even if optional fields like statusUrl or redirectUrl are null', () => {

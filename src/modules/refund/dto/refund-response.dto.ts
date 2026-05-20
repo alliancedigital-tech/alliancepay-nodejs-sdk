@@ -2,10 +2,10 @@ import { z } from 'zod';
 
 export const RefundResponseSchema = z.object({
     type: z.string().trim(),
-    rrn: z.string().trim(),
+    rrn: z.string().trim().optional(),
     coinAmount: z.number(),
     merchantId: z.string().trim(),
-    operationId: z.string().trim(),
+    operationId: z.string().trim().optional(),
     ecomOperationId: z.string().trim(),
     status: z.string().trim(),
     merchantRequestId: z.string().trim(),

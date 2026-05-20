@@ -2,16 +2,15 @@ import { z } from 'zod';
 import { OPERATION_TYPES } from "../../../core/constants/api";
 
 export const BaseOperationSchema = z.object({
-    rrn: z.string().trim().min(1, "is required and couldn't be empty."),
+    rrn: z.string().trim().optional(),
     coinAmount: z.number(),
     merchantId: z.string().trim().min(1, "is required and couldn't be empty."),
-    operationId: z.string().trim().min(1, "is required and couldn't be empty."),
+    operationId: z.string().trim().optional(),
     ecomOperationId: z.string().trim().min(1, "is required and couldn't be empty."),
     status: z.string().trim().min(1, "is required and couldn't be empty."),
     transactionCurrency: z.string().trim().min(1, "is required and couldn't be empty."),
     creationDateTime: z.union([z.string(), z.instanceof(Date)]).optional(),
     modificationDateTime: z.union([z.string(), z.instanceof(Date)]).optional(),
-
     transactionResponseInfo: z.record(z.any(), z.string()),
     productType: z.string().optional(),
     hppOrderId: z.string().trim().min(1, "is required and couldn't be empty."),

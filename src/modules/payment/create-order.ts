@@ -28,7 +28,7 @@ export class CreateOrderService {
                 orderData,
                 authDto
             );
-
+            ApiErrorHandler.checkResponse(PaymentException, response);
             DtoValidator.validate(response, OrderResponseSchema);
 
             return response as OrderResponseDto;

@@ -7,6 +7,7 @@ import {DtoValidator} from '../../core/validator/dto-validator';
 import {ApiErrorHandler} from '../../core/http/error/error-handler';
 import {AllianceSdkException, RefundException} from '../../core/exceptions/base.exception';
 import {EncryptionService} from '../../core/encryption/encryption';
+import {ValidationException} from "../../core/exceptions/validation.exception";
 
 export class CreateRefundService {
     constructor(
@@ -39,6 +40,7 @@ export class CreateRefundService {
             );
 
             ApiErrorHandler.checkResponse(RefundException, decryptedData);
+            DtoValidator.validate(decryptedData, RefundResponseSchema);
 
             return decryptedData as RefundResponseDto;
         } catch (error) {

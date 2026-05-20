@@ -26,14 +26,14 @@ describe('RefundResponseDto Validation', () => {
         expect(() => DtoValidator.validate(validRefundData, RefundResponseSchema)).not.toThrow();
     });
 
-    it('should throw error if critical bank fields like rrn or operationId are missing', () => {
-        const invalidData = { ...validRefundData };
+    it('should pass even if optional bank fields like rrn or operationId are missing', () => {
+        const dataWithoutOptional = { ...validRefundData };
         // @ts-ignore
-        delete invalidData.rrn;
+        delete dataWithoutOptional.rrn;
         // @ts-ignore
-        delete invalidData.operationId;
+        delete dataWithoutOptional.operationId;
 
-        expect(() => DtoValidator.validate(invalidData, RefundResponseSchema)).toThrow();
+        expect(() => DtoValidator.validate(dataWithoutOptional, RefundResponseSchema)).not.toThrow();
     });
 
     it('should allow optional fields like notificationEncryption to be present', () => {

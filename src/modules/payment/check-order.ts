@@ -24,7 +24,7 @@ export class CheckOrderService {
                 {hppOrderId: hppOrderId},
                 authDto
             );
-
+            ApiErrorHandler.checkResponse(GeneralApiException, response);
             DtoValidator.validate(response, OrderDataResponseSchema);
 
             return response as OrderDataResponseDto;
