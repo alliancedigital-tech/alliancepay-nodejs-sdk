@@ -55,10 +55,10 @@ describe('AuthService', () => {
     });
 
     describe('authorize', () => {
-        it('should return same DTO and not call API if token is still valid', async () => {
+        it('should return same DTO and not call API if token is still valid and deviceId is present', async () => {
             const validExpiration = new Date(Date.now() + 100000);
             const validExpirationStr = validExpiration.toISOString();
-            const validDto = { ...mockAuthDto, authToken: 'valid', tokenExpirationDateTime: validExpirationStr };
+            const validDto = { ...mockAuthDto, authToken: 'valid', tokenExpirationDateTime: validExpirationStr, deviceId: 'device-123' };
 
             const result = await authService.authorize(validDto);
 
@@ -69,7 +69,7 @@ describe('AuthService', () => {
         it('should force re-authorization if reAuth flag is true, even if token is valid', async () => {
             const validExpiration = new Date(Date.now() + 100000);
             const validExpirationStr = validExpiration.toISOString();
-            const validDto = { ...mockAuthDto, authToken: 'valid', tokenExpirationDateTime: validExpirationStr };
+            const validDto = { ...mockAuthDto, authToken: 'valid', tokenExpirationDateTime: validExpirationStr, deviceId: 'device-123' };
 
             mockHttp.post.mockResolvedValue({ jwe: 'encrypted_data' });
             mockEncryption.decrypt.mockResolvedValue({ authToken: 'new_token' });

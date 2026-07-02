@@ -1,14 +1,15 @@
 import { z } from 'zod';
 import {
     OperationPurchaseSchema,
-    OperationRefundSchema
+    OperationRefundSchema,
+    OperationA2ASchema
 } from "../../operation/dto/operations.dto";
 
 export const CallbackSchema = z.object({
     ecomOrderId: z.string().trim().nonempty(),
     coinAmount: z.number(),
     merchantId: z.string().trim().nonempty(),
-    statusUrl: z.url({ message: "must be a valid URL" }),
+    statusUrl: z.url({ message: "must be a valid URL" }).nullable(),
     redirectUrl: z.url({ message: "must be a valid URL" }),
     notificationUrl: z.url({ message: "must be a valid URL" }),
     notificationEncryption: z.boolean(),
@@ -21,7 +22,8 @@ export const CallbackSchema = z.object({
     expiredOrderDate: z.union([z.string(), z.instanceof(Date)]).optional(),
     operation: z.discriminatedUnion("type", [
         OperationPurchaseSchema,
-        OperationRefundSchema
+        OperationRefundSchema,
+        OperationA2ASchema
     ])
 });
 

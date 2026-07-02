@@ -10,5 +10,6 @@ export const API = {
 
 export enum OPERATION_TYPES {
     PURCHASE = 'PURCHASE',
-    REFUND = 'REFUND'
+    REFUND = 'REFUND',
+    A2A = 'ACCOUNT_2_ACCOUNT'
 };

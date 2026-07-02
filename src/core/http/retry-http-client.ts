@@ -1,6 +1,7 @@
 import { IHttpClient } from './http-client.interface';
 import { AuthorizationDto } from '../../modules/auth/dto/authorization.dto';
 import { AuthService } from '../../modules/auth/authorization';
+import { AllianceSdkException } from '../exceptions/base.exception';
 
 export class RetryHttpClient implements IHttpClient {
     constructor(

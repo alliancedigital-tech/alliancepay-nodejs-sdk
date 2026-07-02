@@ -84,7 +84,8 @@ describe('CallbackHandler', () => {
 
     it.each([
         [OPERATION_TYPES.PURCHASE],
-        [OPERATION_TYPES.REFUND]
+        [OPERATION_TYPES.REFUND],
+        [OPERATION_TYPES.A2A]
     ])('should accept valid operation type: %s', (type) => {
         const data = {
             ...validCallbackData,

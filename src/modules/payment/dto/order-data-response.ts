@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 import {
     OperationPurchaseSchema,
-    OperationRefundSchema
+    OperationRefundSchema,
+    OperationA2ASchema
 } from '../../operation/dto/operations.dto';
 
 export const OrderDataResponseSchema = z.object({
@@ -22,7 +23,8 @@ export const OrderDataResponseSchema = z.object({
 
     operations: z.array(z.discriminatedUnion("type", [
         OperationPurchaseSchema,
-        OperationRefundSchema
+        OperationRefundSchema,
+        OperationA2ASchema
     ]))
 });
 

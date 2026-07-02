@@ -37,6 +37,7 @@ export class AuthService {
             const updatedAuth: AuthorizationDto = {
                 ...authDto,
                 ...decryptedData as AuthorizationDto,
+                deviceId: (decryptedData as AuthorizationDto).deviceId || authDto.deviceId,
                 tokenExpirationDateTime: decryptedData.tokenExpirationDateTime
                     ? new Date(decryptedData.tokenExpirationDateTime)
                     : undefined

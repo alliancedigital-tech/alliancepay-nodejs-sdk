@@ -9,7 +9,7 @@ export const OrderResponseSchema = z.object({
     coinAmount: z.number(),
     merchantId: z.string().nonempty(),
     redirectUrl: z.url(),
-    statusUrl: z.url(),
+    statusUrl: z.url().nullable(),
     nbuQrCode: z.url().optional().nullable(),
     expiredOrderDate: z.union([z.string(), z.instanceof(Date)]).optional(),
     createDate: z.union([z.string(), z.instanceof(Date)]).optional(),

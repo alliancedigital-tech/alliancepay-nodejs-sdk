@@ -66,10 +66,10 @@ describe('OrderRequestSchema Validation', () => {
         );
     });
 
-    it('should throw error if expirationTimeMinutes exceeds 9999', () => {
-        const invalid = { ...validRequest, expirationTimeMinutes: 10000 };
+    it('should throw error if expirationTimeMinutes exceeds 1440', () => {
+        const invalid = { ...validRequest, expirationTimeMinutes: 1441 };
         expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
-            'Validation failed: Too big: expected number to be <=9999 for field expirationTimeMinutes'
+            'Validation failed: Too big: expected number to be <=1440 for field expirationTimeMinutes'
         );
     });
 
@@ -80,8 +80,8 @@ describe('OrderRequestSchema Validation', () => {
         );
     });
 
-    it('should accept expirationTimeMinutes = 9999', () => {
-        const valid = { ...validRequest, expirationTimeMinutes: 9999 };
+    it('should accept expirationTimeMinutes = 1440', () => {
+        const valid = { ...validRequest, expirationTimeMinutes: 1440 };
         expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
     });
 
@@ -126,7 +126,12 @@ describe('OrderRequestSchema Validation', () => {
     });
 
     it('should accept hppPayType = A2A when merchantComment is provided', () => {
-        const valid = { ...validRequest, hppPayType: 'A2A', merchantComment: 'Transfer comment' };
+        const valid = {
+            ...validRequest,
+            hppPayType: 'A2A',
+            merchantComment: 'Transfer comment',
+            directType: 'BANK_LINK'
+        };
         expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
     });
 
@@ -136,7 +141,12 @@ describe('OrderRequestSchema Validation', () => {
     });
 
     it('should accept hppPayType = "A2A" with merchantComment', () => {
-        const valid = { ...validRequest, hppPayType: 'A2A', merchantComment: 'Transfer' };
+        const valid = {
+            ...validRequest,
+            hppPayType: 'A2A',
+            merchantComment: 'Transfer',
+            directType: 'BANK_LINK'
+        };
         expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
     });
 

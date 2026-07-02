@@ -56,7 +56,7 @@ describe('CallbackSchema Validation', () => {
             if (e.name === 'AssertionError') throw e;
 
             expect(e).toBeInstanceOf(ValidationException);
-            expect(e.errors[0]).toContain('operation.type');
+            expect(e.errors[0]).toContain('for field operation.type');
         }
     });
 

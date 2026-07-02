@@ -1,5 +1,18 @@
 import {z} from 'zod';
 
+export const HppProductSchema = z.object({
+    name: z.string(),
+    count: z.number().int(),
+    sum: z.number().int(),
+});
+
+export const HppPageAdditionalInfoSchema = z.object({
+    productsSum: z.number().int().optional(),
+    products: z.array(HppProductSchema).optional(),
+}).optional().nullable();
+
+export type HppPageAdditionalInfo = z.infer<typeof HppPageAdditionalInfoSchema>;
+
 export const CustomerDataSchema = z.object({
     senderCustomerId: z.string().min(1).max(255),
     senderFirstName: z.string().max(30).optional(),
@@ -27,9 +40,9 @@ export const OrderRequestSchema = z.object({
     merchantRequestId: z.string().min(1).max(36),
     merchantId: z.string().min(1).max(36),
     hppPayType: z.enum(['A2A', 'PURCHASE']),
-    directType: z.string().optional(),
+    directType: z.enum(['REDIRECT', 'BANK_LINK']).optional(),
     hppTryMode: z.string().optional(),
-    expirationTimeMinutes: z.number().int().max(9999).optional(),
+    expirationTimeMinutes: z.number().int().min(60).max(1440).optional(),
     coinAmount: z.number().int().positive(),
     paymentMethods: z.array(z.string()).nonempty(),
     language: z.string().max(50).optional(),
@@ -40,6 +53,7 @@ export const OrderRequestSchema = z.object({
     statusPageType: z.string().min(1),
     purpose: z.string().max(255).optional(),
     merchantComment: z.string().max(255).optional(),
+    hppPageAdditionalInfo: HppPageAdditionalInfoSchema,
     priorityBankCode: z.string().optional(),
     paymentCategoryGoal: z.string().optional(),
     generateQrNbu: z.boolean().optional().default(false),
@@ -50,6 +64,13 @@ export const OrderRequestSchema = z.object({
             code: z.ZodIssueCode.custom,
             path: ['merchantComment'],
             message: 'merchantComment is required when hppPayType is A2A',
+        });
+    }
+    if (data.hppPayType === 'A2A' && !data.directType) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['directType'],
+            message: 'directType is required when hppPayType is A2A',
         });
     }
 });

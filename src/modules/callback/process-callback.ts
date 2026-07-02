@@ -20,7 +20,8 @@ export class CallbackHandler {
     private validateOperationType(operation: any): void {
         const validTypes = [
             OPERATION_TYPES.PURCHASE,
-            OPERATION_TYPES.REFUND
+            OPERATION_TYPES.REFUND,
+            OPERATION_TYPES.A2A
         ];
 
         if (!operation.type || !validTypes.includes(operation.type)) {

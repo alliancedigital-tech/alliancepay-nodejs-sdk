@@ -32,6 +32,7 @@ export const BaseOperationSchema = z.object({
     paymentSystem: z.string().optional(),
     paymentServiceType: z.string().optional(),
     externalCardToken: z.string().optional(),
+    processingDateTime: z.union([z.string(), z.instanceof(Date)]).optional(),
 });
 
 export const OperationPurchaseSchema = BaseOperationSchema.extend({
@@ -42,11 +43,17 @@ export const OperationRefundSchema = BaseOperationSchema.extend({
     type: z.literal(OPERATION_TYPES.REFUND)
 });
 
+export const OperationA2ASchema = BaseOperationSchema.extend({
+    type: z.literal(OPERATION_TYPES.A2A)
+});
+
 export type BaseOperationDto = z.infer<typeof BaseOperationSchema>;
 export type OperationPurchaseDto = z.infer<typeof OperationPurchaseSchema>;
 export type OperationRefundDto = z.infer<typeof OperationRefundSchema>;
+export type OperationA2ADto = z.infer<typeof OperationA2ASchema>;
 
 export const OperationSchemaUnion = z.union([
     OperationPurchaseSchema,
-    OperationRefundSchema
+    OperationRefundSchema,
+    OperationA2ASchema
 ]);

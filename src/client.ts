@@ -9,6 +9,7 @@ import {OrderResponseDto} from './modules/payment/dto/order-response.dto';
 import {OrderRequestDto} from './modules/payment/dto/order-request.dto';
 import {GenerateRequestIdentification} from './core/utils/request-identification';
 import {RetryHttpClient} from './core/http/retry-http-client';
+import {AllianceSdkException} from './core/exceptions/base.exception';
 import {RefundResponseDto} from './modules/refund/dto/refund-response.dto';
 import {CreateRefundService} from './modules/refund/create-refund';
 import {RefundRequestDto} from './modules/refund/dto/refund-request.dto';
