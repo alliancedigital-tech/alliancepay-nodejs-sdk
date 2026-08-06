@@ -72,18 +72,34 @@ try {
 Для автоматичної обробки повідомлень від платіжного шлюзу використовуйте метод `handleCallback`. 
 Він бере на себе перевірку валідності даних та їх дешифрування.
 
+Поле `callbackDto.operation.type` визначає тип операції: `'PURCHASE'`, `'REFUND'`, `'PREAUTH'`, `'COMPLETION'` або `'ACCOUNT_2_ACCOUNT'`.
+
 #### Приклад використання (Express.js):
 ```typescript
 app.post('/api/payment/callback', async (req, res) => {
     try {
         // Очікується, що req.body вже є розпарсеним JSON об'єктом
         const callbackDto = await client.handleCallback(req.body);
-        
-        if (callbackDto.orderStatus === 'SUCCESS') {
+        const { operation } = callbackDto;
+
+        if (operation.type === 'PURCHASE' && operation.status === 'SUCCESS') {
             // Обробіть успішний платіж у вашій системі
             console.log('Payment successful for order:', callbackDto.ecomOrderId);
         }
-        
+
+        if (operation.type === 'PREAUTH' && operation.status === 'SUCCESS') {
+            // Кошти заморожено — збережіть operationId для виконання COMPLETION
+            console.log('PREAUTH successful, operationId:', operation.operationId);
+            // await db.savePreauthOperationId(callbackDto.hppOrderId, operation.operationId);
+        }
+
+        if (operation.type === 'COMPLETION' && operation.status === 'SUCCESS') {
+            // Кошти успішно списано
+            console.log('COMPLETION successful for order:', callbackDto.ecomOrderId);
+            console.log('Original PREAUTH operationId:', operation.preauthOperationId);
+            console.log('Original PREAUTH amount (coins):', operation.preauthCoinAmount);
+        }
+
         // Повертаємо 200 OK сервісу AlliancePay
         res.status(200).send('OK');
     } catch (error) {
@@ -112,7 +128,87 @@ try {
 }
 ```
 
-### 5. Перевірка статусу замовлення
+### 5. Попередня авторизація (PREAUTH)
+PREAUTH дозволяє заморозити кошти на картці клієнта без їх фактичного списання. Кошти утримуються до моменту виконання COMPLETION або закінчення терміну дії авторизації.
+
+Для ініціювання передайте `hppPayType: 'PREAUTH'` у метод `createOrder`. SDK автоматично встановить `preAuthExpDate` (поточний час + 2 години 30 секунд), якщо ви не передасте це поле явно.
+
+> **`preAuthExpDate`** — необов'язковий параметр. Якщо передаєте вручну, дотримуйтеся формату `YYYY-MM-DD HH:mm:ss.SS±HH:MM` (наприклад, `2025-11-13 15:01:54.56+02:00`). Значення має бути не раніше ніж через 2 години та не пізніше ніж через 28 днів від поточного моменту.
+
+#### Приклад ініціювання PREAUTH:
+```typescript
+// SDK автоматично встановить preAuthExpDate = тепер + 2год 30сек
+const orderData = {
+    coinAmount: 25000, // Сума в копійках
+    hppPayType: 'PREAUTH',
+    paymentMethods: ['CARD'],
+    successUrl: 'https://your-site.com/success',
+    failUrl: 'https://your-site.com/fail',
+    statusPageType: 'STATUS_TIMER_PAGE',
+    customerData: { senderCustomerId: 'customer_id_1' },
+};
+
+// Або із явно заданим терміном дії авторизації (від +2год до +28 днів від поточного моменту):
+const orderDataWithExpDate = {
+    ...orderData,
+    preAuthExpDate: '2025-11-13 15:01:54.56+02:00',
+};
+
+try {
+    const response = await client.createOrder(orderData);
+    console.log('Redirect to payment page:', response.redirectUrl);
+    // Зберігаємо hppOrderId для подальшої перевірки статусу
+    console.log('HPP Order ID:', response.hppOrderId);
+} catch (error) {
+    console.error('PREAUTH order creation failed:', error);
+}
+```
+
+Після того як клієнт підтвердить авторизацію на сторінці оплати, сервіс надішле callback із `operation.type === 'PREAUTH'`. Збережіть `operationId` з тіла callback — він знадобиться для виконання COMPLETION (див. розділ 3).
+
+### 6. Завершення авторизації (COMPLETION)
+COMPLETION списує кошти, заморожені попередньою PREAUTH-операцією. Сума списання може відрізнятися від суми попередньої авторизації не більше ніж на **±20%**.
+
+Метод `createCompletion` приймає два аргументи:
+1. Об'єкт із даними операції — `originalOperationId`, `coinAmount` та опціонально `notificationUrl`.
+2. `originalCoinAmount` — сума оригінальної PREAUTH-операції в копійках. Використовується для перевірки допустимого діапазону списання.
+
+SDK автоматично додає `merchantId`, `merchantRequestId` та `date`.
+
+#### Приклад виконання COMPLETION:
+```typescript
+import { CompletionAmountException, AllianceSdkException } from 'alliance-payment-hpp-integration-sdk';
+
+const originalCoinAmount = 25000; // Сума оригінальної PREAUTH в копійках
+
+try {
+    const completionResponse = await client.createCompletion(
+        {
+            originalOperationId: 'PREAUTH_OPERATION_ID', // operationId з callback PREAUTH
+            coinAmount: 24000, // Сума списання (в межах ±20% від 25000: 20000–30000)
+            notificationUrl: 'https://your-site.com/api/completion-callback', // Опціонально
+        },
+        originalCoinAmount
+    );
+
+    console.log('Completion status:', completionResponse.status);
+    console.log('ecomOperationId:', completionResponse.ecomOperationId);
+    console.log('Original PREAUTH operationId:', completionResponse.preauthOperationId);
+    console.log('Original PREAUTH amount (coins):', completionResponse.preauthCoinAmount);
+} catch (error) {
+    if (error instanceof CompletionAmountException) {
+        // Сума виходить за межі ±20% від оригінальної PREAUTH
+        console.error('Amount out of allowed range:', error.message);
+    } else if (error instanceof AllianceSdkException) {
+        console.error(`Bank Error Code: ${error.code}`);
+        console.error(`Message: ${error.message}`);
+    } else {
+        console.error('Unexpected error:', error);
+    }
+}
+```
+
+### 7. Перевірка статусу замовлення
 Якщо вам потрібно вручну перевірити поточний стан транзакції 
 (наприклад, за кроном або якщо користувач закрив сторінку оплати), 
 використовуйте метод `checkOrderData` з передачею `hppOrderId`.
@@ -129,15 +225,17 @@ try {
 }
 ```
 
-### 6. Обробка специфічних помилок (Exceptions)
+### 8. Обробка специфічних помилок (Exceptions)
 SDK використовує типізовані помилки для точного визначення причини відмови.
 
-| Клас помилки          | Опис |
-|-----------------------| -------- |
-| `ValidationException` | Дані не пройшли перевірку за схемою DTO (відсутні обов'язкові поля або невірний тип).  |
-| `AuthorizationException` | Помилки авторизації, невірні ключі або прострочені сесії. |
-| `PaymentException` | Помилки на рівні платіжної логіки (наприклад, недостатньо коштів для повернення). |
-| `AllianceSdkException` | Базовий клас для всіх кастомних помилок SDK. |
+| Клас помилки                 | Опис |
+|------------------------------| -------- |
+| `ValidationException`        | Дані не пройшли перевірку за схемою DTO (відсутні обов'язкові поля або невірний тип).  |
+| `AuthorizationException`     | Помилки авторизації, невірні ключі або прострочені сесії. |
+| `PaymentException`           | Помилки на рівні платіжної логіки (наприклад, недостатньо коштів для повернення). |
+| `CompletionException`        | Помилки HTTP, шифрування або API під час виконання COMPLETION. |
+| `CompletionAmountException`  | Сума COMPLETION виходить за межі ±20% від суми оригінальної PREAUTH. |
+| `AllianceSdkException`       | Базовий клас для всіх кастомних помилок SDK. |
 
 #### Приклад перевірки помилок:
 ```typescript

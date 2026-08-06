@@ -2,6 +2,7 @@ import { IHttpClient } from './http-client.interface';
 import { AuthorizationDto } from '../../modules/auth/dto/authorization.dto';
 import { AuthService } from '../../modules/auth/authorization';
 import { AllianceSdkException } from '../exceptions/base.exception';
+import { AUTH_ERROR_CODES } from '../constants/api';
 
 export class RetryHttpClient implements IHttpClient {
     constructor(
@@ -35,6 +36,27 @@ export class RetryHttpClient implements IHttpClient {
     }
 
     private isUnauthorized(error: any): boolean {
-        return error.response?.status === 401 || error.statusCode === 401;
+        if (error.status === 401 || error.response?.status === 401 || error.statusCode === 401) {
+            return true;
+        }
+
+        if (error instanceof AllianceSdkException && error.originalError?.status === 401) {
+            return true;
+        }
+
+        if (error instanceof AllianceSdkException && AUTH_ERROR_CODES.includes(error.code)) {
+            return true;
+        }
+
+        if (error instanceof Error && typeof error.message === 'string') {
+            try {
+                const parsed = JSON.parse(error.message);
+                if (parsed?.msgCode && AUTH_ERROR_CODES.includes(parsed.msgCode)) {
+                    return true;
+                }
+            } catch { /* ignore not JSON */ }
+        }
+
+        return false;
     }
 }

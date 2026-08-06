@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DtoValidator } from '../../../core/validator/dto-validator';
 import { OrderRequestSchema } from './order-request.dto';
 
@@ -158,15 +158,153 @@ describe('OrderRequestSchema Validation', () => {
     it('should throw error if hppPayType is an unknown value', () => {
         const invalid = { ...validRequest, hppPayType: 'HPP' };
         expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
-            'Validation failed: Invalid option: expected one of "A2A"|"PURCHASE" for field hppPayType'
+            'Validation failed: Invalid option: expected one of "A2A"|"PURCHASE"|"PREAUTH" for field hppPayType'
         );
     });
 
     it('should throw error if hppPayType is empty string', () => {
         const invalid = { ...validRequest, hppPayType: '' };
         expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
-            'Validation failed: Invalid option: expected one of "A2A"|"PURCHASE" for field hppPayType'
+            'Validation failed: Invalid option: expected one of "A2A"|"PURCHASE"|"PREAUTH" for field hppPayType'
         );
+    });
+
+    it('should accept hppPayType = PREAUTH', () => {
+        const valid = { ...validRequest, hppPayType: 'PREAUTH' };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept hppPayType = PREAUTH with preAuthExpDate = null (default)', () => {
+        const valid = { ...validRequest, hppPayType: 'PREAUTH', preAuthExpDate: null };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+});
+
+describe('OrderRequestSchema — preAuthExpDate validation for PREAUTH', () => {
+    const validPreauthBase = {
+        merchantRequestId: 'REQ-1',
+        merchantId: 'M-1',
+        hppPayType: 'PREAUTH',
+        coinAmount: 100,
+        paymentMethods: ['card'],
+        successUrl: 'https://ok.com',
+        failUrl: 'https://fail.com',
+        statusPageType: 'REDIRECT',
+        customerData: { senderCustomerId: 'CUST-001' },
+        preAuthExpDate: null,
+    };
+
+    function formatPreAuthDate(date: Date): string {
+        const iso = date.toISOString();
+        const localOffset = '+02:00';
+        const local = new Date(date.getTime() + 2 * 60 * 60 * 1000); // UTC+2
+        const s = local.toISOString()
+            .replace('T', ' ')
+            .replace('Z', localOffset)
+            .replace(/\.(\d{2})\d/, '.$1');
+        return s;
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('should accept preAuthExpDate = null (SDK підставить автоматично)', () => {
+        const valid = { ...validPreauthBase, preAuthExpDate: null };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept valid preAuthExpDate — now + 2h + 5min (мінімальний граничний)', () => {
+        const expDate = new Date(Date.now() + 2 * 60 * 60 * 1000 + 5 * 60 * 1000);
+        const valid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept valid preAuthExpDate — now + 14 days (середина діапазону)', () => {
+        const expDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+        const valid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept valid preAuthExpDate — now + 27 days (близько до максимуму)', () => {
+        const expDate = new Date(Date.now() + 27 * 24 * 60 * 60 * 1000);
+        const valid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should reject preAuthExpDate — now + 1h (менше 2 годин)', () => {
+        const expDate = new Date(Date.now() + 1 * 60 * 60 * 1000);
+        const invalid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be at least 2 hours from now'
+        );
+    });
+
+    it('should reject preAuthExpDate — now + 2h - 1min (менше мінімуму, стабільний тест)', () => {
+        const expDate = new Date(Date.now() + 2 * 60 * 60 * 1000 - 60 * 1000);
+        const invalid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be at least 2 hours from now'
+        );
+    });
+
+    it('should reject preAuthExpDate — now + 29 days (більше 28 днів)', () => {
+        const expDate = new Date(Date.now() + 29 * 24 * 60 * 60 * 1000);
+        const invalid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be within 28 days from now'
+        );
+    });
+
+    it('should reject preAuthExpDate — now + 28 days + 1h (за максимумом, стабільний тест)', () => {
+        const expDate = new Date(Date.now() + 28 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000);
+        const invalid = { ...validPreauthBase, preAuthExpDate: formatPreAuthDate(expDate) };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be within 28 days from now'
+        );
+    });
+
+    it('should reject preAuthExpDate — минула дата', () => {
+        const expDate = new Date('2025-01-01T10:00:00.00+02:00');
+        const invalid = { ...validPreauthBase, preAuthExpDate: '2025-01-01 10:00:00.00+02:00' };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be at least 2 hours from now'
+        );
+    });
+
+    it('should reject preAuthExpDate — невалідний формат (ISO 8601 з T)', () => {
+        const invalid = { ...validPreauthBase, preAuthExpDate: '2026-11-13T15:01:54.56+02:00' };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be in format YYYY-MM-DD HH:mm:ss.SS+HH:MM'
+        );
+    });
+
+    it('should reject preAuthExpDate — невалідний формат (без секунд)', () => {
+        const invalid = { ...validPreauthBase, preAuthExpDate: '2026-11-13 15:01+02:00' };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'must be in format YYYY-MM-DD HH:mm:ss.SS+HH:MM'
+        );
+    });
+
+    it('should reject preAuthExpDate — порожній рядок', () => {
+        const invalid = { ...validPreauthBase, preAuthExpDate: '' };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow();
+    });
+
+    it('should reject preAuthExpDate — синтаксично валідний рядок з неіснуючою датою (9999-99-99 99:99:99.99+99:99)', () => {
+        const invalid = { ...validPreauthBase, preAuthExpDate: '9999-99-99 99:99:99.99+99:99' };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'preAuthExpDate is not a valid calendar date'
+        );
+    });
+
+    it('should accept preAuthExpDate for PURCHASE (поле ігнорується для не-PREAUTH)', () => {
+        const valid = {
+            ...validPreauthBase,
+            hppPayType: 'PURCHASE',
+            preAuthExpDate: 'anything-not-validated',
+        };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
     });
 });
 

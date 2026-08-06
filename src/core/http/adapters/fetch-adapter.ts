@@ -1,6 +1,7 @@
 import { IHttpClient, RequestConfig } from '../http-client.interface';
 import { RequestBuilder } from '../request/request-builder';
 import { AuthorizationDto } from '../../../modules/auth/dto/authorization.dto';
+import { GeneralApiException } from '../../exceptions/base.exception';
 
 export class FetchAdapter implements IHttpClient {
     constructor(
@@ -50,9 +51,21 @@ export class FetchAdapter implements IHttpClient {
     private async handleResponse<T>(response: Response): Promise<T> {
         if (!response.ok) {
             const errorText = await response.text();
-            const error = new Error(errorText || `Request failed with status ${response.status}`);
-            (error as any).status = response.status;
-            throw error;
+            let msgCode = response.status.toString();
+            let msgText = errorText || `Request failed with status ${response.status}`;
+            let parsed: any = null;
+
+            try {
+                parsed = JSON.parse(errorText);
+                if (parsed?.msgCode) msgCode = parsed.msgCode;
+                if (parsed?.msgText) msgText = parsed.msgText;
+            } catch {}
+
+            throw new GeneralApiException(
+                msgText,
+                msgCode,
+                { status: response.status, ...(parsed ?? { raw: errorText }) }
+            );
         }
 
         const contentType = response.headers.get('content-type');

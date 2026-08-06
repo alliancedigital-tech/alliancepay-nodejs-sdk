@@ -47,13 +47,29 @@ export const OperationA2ASchema = BaseOperationSchema.extend({
     type: z.literal(OPERATION_TYPES.A2A)
 });
 
+export const OperationPreAuthSchema = BaseOperationSchema.extend({
+    type: z.literal(OPERATION_TYPES.PREAUTH)
+});
+
+export const OperationCompletionSchema = BaseOperationSchema.extend({
+    type: z.literal(OPERATION_TYPES.COMPLETION),
+    rrnPreauth: z.string().nullable().optional(),
+    preauthOperationId: z.string().nullable().optional(),
+    preauthCoinAmount: z.number().int().nullable().optional(),
+    preauthEcomOperationId: z.string().nullable().optional(),
+});
+
 export type BaseOperationDto = z.infer<typeof BaseOperationSchema>;
 export type OperationPurchaseDto = z.infer<typeof OperationPurchaseSchema>;
 export type OperationRefundDto = z.infer<typeof OperationRefundSchema>;
 export type OperationA2ADto = z.infer<typeof OperationA2ASchema>;
+export type OperationPreAuthDto = z.infer<typeof OperationPreAuthSchema>;
+export type OperationCompletionDto = z.infer<typeof OperationCompletionSchema>;
 
 export const OperationSchemaUnion = z.union([
     OperationPurchaseSchema,
     OperationRefundSchema,
-    OperationA2ASchema
+    OperationA2ASchema,
+    OperationPreAuthSchema,
+    OperationCompletionSchema,
 ]);

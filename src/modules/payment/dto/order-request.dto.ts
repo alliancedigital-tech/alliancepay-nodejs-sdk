@@ -1,4 +1,6 @@
 import {z} from 'zod';
+import {DateTimeProvider} from '../../../core/utils/date-time.provider';
+import {HPP_PAY_TYPES} from "../../../core/constants/api";
 
 export const HppProductSchema = z.object({
     name: z.string(),
@@ -36,10 +38,12 @@ export const CustomerDataSchema = z.object({
     senderZipCode: z.string().max(50).optional(),
 }).strict();
 
+const PREAUTH_EXP_DATE_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{2}[+-]\d{2}:\d{2}$/;
+
 export const OrderRequestSchema = z.object({
     merchantRequestId: z.string().min(1).max(36),
     merchantId: z.string().min(1).max(36),
-    hppPayType: z.enum(['A2A', 'PURCHASE']),
+    hppPayType: z.enum([HPP_PAY_TYPES.A2A, HPP_PAY_TYPES.PURCHASE, HPP_PAY_TYPES.PREAUTH]),
     directType: z.enum(['REDIRECT', 'BANK_LINK']).optional(),
     hppTryMode: z.string().optional(),
     expirationTimeMinutes: z.number().int().min(60).max(1440).optional(),
@@ -58,20 +62,62 @@ export const OrderRequestSchema = z.object({
     paymentCategoryGoal: z.string().optional(),
     generateQrNbu: z.boolean().optional().default(false),
     customerData: CustomerDataSchema,
+    preAuthExpDate: z.string().nullable().default(null),
 }).superRefine((data, ctx) => {
-    if (data.hppPayType === 'A2A' && !data.merchantComment) {
+    if (data.hppPayType === HPP_PAY_TYPES.A2A && !data.merchantComment) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['merchantComment'],
             message: 'merchantComment is required when hppPayType is A2A',
         });
     }
-    if (data.hppPayType === 'A2A' && !data.directType) {
+    if (data.hppPayType === HPP_PAY_TYPES.A2A && !data.directType) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['directType'],
             message: 'directType is required when hppPayType is A2A',
         });
+    }
+    if (data.hppPayType === HPP_PAY_TYPES.PREAUTH && data.preAuthExpDate !== null) {
+        if (!PREAUTH_EXP_DATE_REGEX.test(data.preAuthExpDate)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['preAuthExpDate'],
+                message: 'preAuthExpDate must be in format YYYY-MM-DD HH:mm:ss.SS+HH:MM'
+                    + ' (e.g. 2025-11-13 15:01:54.56+02:00)',
+            });
+            return;
+        }
+
+        const expDate = new Date(data.preAuthExpDate.replace(' ', 'T'));
+
+        if (!Number.isFinite(expDate.getTime())) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['preAuthExpDate'],
+                message: 'preAuthExpDate is not a valid calendar date',
+            });
+            return;
+        }
+
+        const now = new Date();
+        const minDate = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        const maxDate = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
+
+        if (expDate <= minDate) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['preAuthExpDate'],
+                message: 'preAuthExpDate must be at least 2 hours from now',
+            });
+        }
+        if (expDate >= maxDate) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['preAuthExpDate'],
+                message: 'preAuthExpDate must be within 28 days from now',
+            });
+        }
     }
 });
 

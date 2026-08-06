@@ -15,3 +15,5 @@ export class AuthorizationException extends AllianceSdkException {}
 export class PaymentException extends AllianceSdkException {}
 export class RefundException extends AllianceSdkException {}
 export class GeneralApiException extends AllianceSdkException {}
+export class CompletionException extends AllianceSdkException {}
+export class CompletionAmountException extends AllianceSdkException {}

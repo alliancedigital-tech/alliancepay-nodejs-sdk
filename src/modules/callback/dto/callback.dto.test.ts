@@ -71,4 +71,85 @@ describe('CallbackSchema Validation', () => {
         const invalidData = { ...validCallback, paymentMethods: "CARD" };
         expect(() => DtoValidator.validate(invalidData, CallbackSchema)).toThrow(/received string for field paymentMethods/);
     });
+
+    it('should pass with operation.type = PREAUTH', () => {
+        const preauthCallback = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                type: 'PREAUTH',
+            },
+        };
+        expect(() => DtoValidator.validate(preauthCallback, CallbackSchema)).not.toThrow(ValidationException);
+    });
+
+    it('should pass with operation.type = COMPLETION and preauth fields', () => {
+        const completionCallback = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                type: 'COMPLETION',
+                rrnPreauth: '621610670831',
+                preauthOperationId: '1785840105543ovr-HqqpbrZ',
+                preauthCoinAmount: 5000,
+                preauthEcomOperationId: '78093fa9-6c65-489f-8907-2aff145a37a9',
+            },
+        };
+        expect(() => DtoValidator.validate(completionCallback, CallbackSchema)).not.toThrow(ValidationException);
+    });
+
+    it('should pass with operation.type = COMPLETION without preauth fields (all optional)', () => {
+        const completionCallback = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                type: 'COMPLETION',
+            },
+        };
+        expect(() => DtoValidator.validate(completionCallback, CallbackSchema)).not.toThrow(ValidationException);
+    });
+
+    it('should pass with operation.type = COMPLETION and null preauth fields (узгодженість з CompletionResponseSchema)', () => {
+        const completionCallback = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                type: 'COMPLETION',
+                rrnPreauth: null,
+                preauthOperationId: null,
+                preauthCoinAmount: null,
+                preauthEcomOperationId: null,
+            },
+        };
+        expect(() => DtoValidator.validate(completionCallback, CallbackSchema)).not.toThrow(ValidationException);
+    });
+
+    it('should fail with operation.type = COMPLETION and preauthCoinAmount as float', () => {
+        const invalidCallback = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                type: 'COMPLETION',
+                preauthCoinAmount: 100.5,
+            },
+        };
+        expect(() => DtoValidator.validate(invalidCallback, CallbackSchema)).toThrow(ValidationException);
+    });
+
+    it('should fail with unknown operation type', () => {
+        const invalidCallback = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                type: 'UNKNOWN_TYPE',
+            },
+        };
+        expect(() => DtoValidator.validate(invalidCallback, CallbackSchema)).toThrow(ValidationException);
+    });
+
+    it('should pass with notificationEncryption absent (optional)', () => {
+        const callbackWithoutEncryption = JSON.parse(JSON.stringify(validCallback));
+        delete callbackWithoutEncryption.notificationEncryption;
+        expect(() => DtoValidator.validate(callbackWithoutEncryption, CallbackSchema)).not.toThrow();
+    });
 });

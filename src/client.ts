@@ -18,6 +18,10 @@ import {CallbackDto} from './modules/callback/dto/callback.dto';
 import {CallbackHandler} from "./modules/callback/process-callback";
 import {OrderDataResponseDto} from "./modules/payment/dto/order-data-response";
 import {CheckOrderService} from "./modules/payment/check-order";
+import {CreateCompletionService} from './modules/payment/create-completion';
+import {CompletionResponseDto} from './modules/payment/dto/completion-response.dto';
+import {CompletionRequestDto} from './modules/payment/dto/create-completion-request.dto';
+import {HPP_PAY_TYPES} from "./core/constants/api";
 
 export interface AllianceSDKConfig {
     authentificationData: AuthorizationDto;
@@ -33,6 +37,7 @@ export class AllianceBankClient {
     private readonly requestBuilder: RequestBuilder;
     private createOrderService: CreateOrderService;
     private createRefundService: CreateRefundService;
+    private createCompletionService: CreateCompletionService;
     private callbackHandler: CallbackHandler;
     private checkOrderService: CheckOrderService;
 
@@ -52,6 +57,7 @@ export class AllianceBankClient {
         this.http = new RetryHttpClient(baseHttpClient, this.auth);
         this.createOrderService = new CreateOrderService(this.http);
         this.createRefundService = new CreateRefundService(this.http, this.encryption);
+        this.createCompletionService = new CreateCompletionService(this.http, this.encryption);
         this.callbackHandler = new CallbackHandler();
         this.checkOrderService = new CheckOrderService(this.http);
     }
@@ -65,10 +71,18 @@ export class AllianceBankClient {
             this.config.authentificationData
         );
 
+        const typedOrderData = orderData as Record<string, any>;
+        let preAuthExpDate = typedOrderData.preAuthExpDate ?? null;
+
+        if (typedOrderData.hppPayType === HPP_PAY_TYPES.PREAUTH && preAuthExpDate === null) {
+            preAuthExpDate = DateTimeProvider.formattedPreAuthExpDate();
+        }
+
         const updatedOrderData = {
             ...orderData,
             merchantId: updatedAuthDto.merchantId,
-            merchantRequestId: GenerateRequestIdentification.generateRequestId()
+            merchantRequestId: GenerateRequestIdentification.generateRequestId(),
+            preAuthExpDate,
         };
 
         const createOrderResponse = await this.createOrderService.createOrder(
@@ -97,6 +111,28 @@ export class AllianceBankClient {
         );
 
         return createRefundResponse as RefundResponseDto;
+    }
+
+    public async createCompletion(
+        completionData: object,
+        originalCoinAmount: number
+    ): Promise<CompletionResponseDto> {
+        const updatedAuthDto: AuthorizationDto = await this.auth.authorize(
+            this.config.authentificationData
+        );
+
+        const updatedCompletionData = {
+            ...completionData,
+            merchantId: updatedAuthDto.merchantId,
+            merchantRequestId: GenerateRequestIdentification.generateRequestId(),
+            date: DateTimeProvider.formattedRefundDate(),
+        };
+
+        return await this.createCompletionService.createCompletion(
+            updatedCompletionData as CompletionRequestDto,
+            originalCoinAmount,
+            updatedAuthDto
+        );
     }
 
     public async handleCallback(data: any): Promise<CallbackDto> {

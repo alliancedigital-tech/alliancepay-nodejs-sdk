@@ -2,7 +2,9 @@ import { z } from 'zod';
 import {
     OperationPurchaseSchema,
     OperationRefundSchema,
-    OperationA2ASchema
+    OperationA2ASchema,
+    OperationPreAuthSchema,
+    OperationCompletionSchema,
 } from "../../operation/dto/operations.dto";
 
 export const CallbackSchema = z.object({
@@ -12,7 +14,7 @@ export const CallbackSchema = z.object({
     statusUrl: z.url({ message: "must be a valid URL" }).nullable(),
     redirectUrl: z.url({ message: "must be a valid URL" }),
     notificationUrl: z.url({ message: "must be a valid URL" }),
-    notificationEncryption: z.boolean(),
+    notificationEncryption: z.boolean().optional(),
     hppOrderId: z.string().trim().nonempty(),
     hppDirectType: z.string().optional(),
     merchantRequestId: z.string().trim().nonempty(),
@@ -23,7 +25,9 @@ export const CallbackSchema = z.object({
     operation: z.discriminatedUnion("type", [
         OperationPurchaseSchema,
         OperationRefundSchema,
-        OperationA2ASchema
+        OperationA2ASchema,
+        OperationPreAuthSchema,
+        OperationCompletionSchema,
     ])
 });
 

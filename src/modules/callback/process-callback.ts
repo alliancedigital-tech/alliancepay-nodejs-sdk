@@ -21,7 +21,9 @@ export class CallbackHandler {
         const validTypes = [
             OPERATION_TYPES.PURCHASE,
             OPERATION_TYPES.REFUND,
-            OPERATION_TYPES.A2A
+            OPERATION_TYPES.A2A,
+            OPERATION_TYPES.PREAUTH,
+            OPERATION_TYPES.COMPLETION,
         ];
 
         if (!operation.type || !validTypes.includes(operation.type)) {
