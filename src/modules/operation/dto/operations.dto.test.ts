@@ -3,6 +3,7 @@ import { DtoValidator } from '../../../core/validator/dto-validator';
 import {
     OperationPreAuthSchema,
     OperationCompletionSchema,
+    OperationPurchaseSchema,
     OperationSchemaUnion,
 } from './operations.dto';
 import { ValidationException } from '../../../core/exceptions/validation.exception';
@@ -100,6 +101,88 @@ describe('OperationCompletionSchema', () => {
             preauthEcomOperationId: null,
         };
         expect(() => DtoValidator.validate(withNulls, OperationCompletionSchema)).not.toThrow();
+    });
+});
+
+describe('BaseOperationSchema — sourceAmount / sourceCurrencyCode / conversionRate', () => {
+    it('should accept operation without sourceAmount/sourceCurrencyCode/conversionRate (optional)', () => {
+        const data = { ...baseOperation, type: 'PURCHASE' };
+        expect(() => DtoValidator.validate(data, OperationSchemaUnion)).not.toThrow();
+    });
+
+    it('should accept operation with sourceAmount, sourceCurrencyCode and conversionRate', () => {
+        const data = {
+            ...baseOperation,
+            type: 'PURCHASE',
+            sourceAmount: 1000,
+            sourceCurrencyCode: 840,
+            conversionRate: 39.5,
+        };
+        expect(() => DtoValidator.validate(data, OperationSchemaUnion)).not.toThrow();
+    });
+
+    it('should reject sourceAmount as float (not int)', () => {
+        const data = { ...baseOperation, type: 'PURCHASE', sourceAmount: 100.5 };
+        expect(() => DtoValidator.validate(data, OperationPurchaseSchema)).toThrow(
+            'Invalid input: expected int, received number for field sourceAmount'
+        );
+    });
+
+    it('should reject sourceCurrencyCode as float (not int)', () => {
+        const data = { ...baseOperation, type: 'PURCHASE', sourceCurrencyCode: 840.5 };
+        expect(() => DtoValidator.validate(data, OperationPurchaseSchema)).toThrow(
+            'Invalid input: expected int, received number for field sourceCurrencyCode'
+        );
+    });
+
+    it('should accept conversionRate as a float', () => {
+        const data = { ...baseOperation, type: 'PURCHASE', conversionRate: 39.5 };
+        expect(() => DtoValidator.validate(data, OperationSchemaUnion)).not.toThrow();
+    });
+
+    it('should accept and coerce sourceAmount/sourceCurrencyCode/conversionRate given as numeric strings (bank callback format)', () => {
+        const data = {
+            ...baseOperation,
+            type: 'PURCHASE',
+            sourceAmount: '1000',
+            sourceCurrencyCode: '840',
+            conversionRate: '44.00',
+        };
+        const result = OperationPurchaseSchema.parse(data);
+        expect(result.sourceAmount).toBe(1000);
+        expect(result.sourceCurrencyCode).toBe(840);
+        expect(result.conversionRate).toBe(44);
+    });
+
+    it('should reject sourceAmount as a float-valued string (not int)', () => {
+        const data = { ...baseOperation, type: 'PURCHASE', sourceAmount: '100.5' };
+        expect(() => DtoValidator.validate(data, OperationPurchaseSchema)).toThrow(
+            'Invalid input: expected int, received number for field sourceAmount'
+        );
+    });
+
+    it('should reject a non-numeric garbage string for sourceCurrencyCode', () => {
+        const data = { ...baseOperation, type: 'PURCHASE', sourceCurrencyCode: 'abc' };
+        expect(() => DtoValidator.validate(data, OperationPurchaseSchema)).toThrow(ValidationException);
+    });
+
+    it('should reject null for conversionRate (no silent coercion to 0)', () => {
+        const data: any = { ...baseOperation, type: 'PURCHASE', conversionRate: null };
+        expect(() => DtoValidator.validate(data, OperationPurchaseSchema)).toThrow(ValidationException);
+    });
+
+    it('should treat an empty string as absent for sourceAmount/sourceCurrencyCode/conversionRate (bank sends "" when not applicable, e.g. no currency conversion)', () => {
+        const data = {
+            ...baseOperation,
+            type: 'PURCHASE',
+            sourceAmount: '',
+            sourceCurrencyCode: '',
+            conversionRate: '',
+        };
+        const result = OperationPurchaseSchema.parse(data);
+        expect(result.sourceAmount).toBeUndefined();
+        expect(result.sourceCurrencyCode).toBeUndefined();
+        expect(result.conversionRate).toBeUndefined();
     });
 });
 

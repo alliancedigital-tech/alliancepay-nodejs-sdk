@@ -96,4 +96,22 @@ describe('CallbackHandler', () => {
         const result = handler.handle(data);
         expect(result.operation.type).toBe(type);
     });
+
+    it('should return the validator-parsed operation, coercing numeric-string sourceCurrencyCode/conversionRate (real bank callback format)', () => {
+        const dataWithStringConversionFields = {
+            ...validCallbackData,
+            operation: {
+                ...validOperation,
+                sourceAmount: '1000',
+                sourceCurrencyCode: '840',
+                conversionRate: '44.00',
+            },
+        };
+
+        const result: any = handler.handle(dataWithStringConversionFields);
+
+        expect(result.operation.sourceAmount).toBe(1000);
+        expect(result.operation.sourceCurrencyCode).toBe(840);
+        expect(result.operation.conversionRate).toBe(44);
+    });
 });

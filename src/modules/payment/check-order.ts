@@ -25,9 +25,8 @@ export class CheckOrderService {
                 authDto
             );
             ApiErrorHandler.checkResponse(GeneralApiException, response);
-            DtoValidator.validate(response, OrderDataResponseSchema);
 
-            return response as OrderDataResponseDto;
+            return DtoValidator.validate(response, OrderDataResponseSchema);
         } catch (error) {
             if (error instanceof AllianceSdkException) {
                 throw error;

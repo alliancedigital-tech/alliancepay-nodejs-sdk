@@ -7,6 +7,13 @@ import {DtoValidator} from '../../core/validator/dto-validator';
 import {ApiErrorHandler} from '../../core/http/error/error-handler';
 import {AllianceSdkException, CompletionAmountException, CompletionException} from '../../core/exceptions/base.exception';
 import {EncryptionService} from '../../core/encryption/encryption';
+import {CoinAmountConverter} from '../../core/utils/coin-amount-converter';
+
+export type CompletionRequestInput = Omit<CompletionRequestDto, 'coinAmount'> & {
+    coinAmount?: number;
+    sourceAmount?: number;
+    conversionRate?: number;
+};
 
 export class CreateCompletionService {
     constructor(
@@ -15,18 +22,25 @@ export class CreateCompletionService {
     ) {}
 
     public async createCompletion(
-        completionData: CompletionRequestDto,
+        completionData: CompletionRequestInput,
         originalCoinAmount: number,
         authDto: AuthorizationDto
     ): Promise<CompletionResponseDto> {
 
-        this.validateCompletionAmount(completionData.coinAmount, originalCoinAmount);
+        const {sourceAmount, conversionRate, ...completionRequestData} = completionData;
 
-        DtoValidator.validate(completionData, CompletionRequestSchema);
+        const resolvedCompletionData = {
+            ...completionRequestData,
+            coinAmount: CoinAmountConverter.resolveCoinAmount(completionRequestData.coinAmount, sourceAmount, conversionRate),
+        } as CompletionRequestDto;
+
+        const validatedCompletionData = DtoValidator.validate(resolvedCompletionData, CompletionRequestSchema);
+
+        this.validateCompletionAmount(validatedCompletionData.coinAmount, originalCoinAmount);
 
         try {
             const encryptedRequest = await this.encryptionService.encrypt(
-                completionData,
+                validatedCompletionData,
                 JSON.stringify(authDto.serverPublic)
             );
 

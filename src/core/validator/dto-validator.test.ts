@@ -57,6 +57,17 @@ describe('DtoValidator with Zod', () => {
         expect(() => DtoValidator.validate(invalidData, schema)).toThrow(ValidationException);
     });
 
+    it('should return the parsed data, applying schema defaults', () => {
+        const schemaWithDefault = z.object({
+            name: z.string(),
+            flag: z.boolean().optional().default(false),
+        });
+
+        const result = DtoValidator.validate({ name: 'Test' }, schemaWithDefault);
+
+        expect(result).toEqual({ name: 'Test', flag: false });
+    });
+
     it('should identify empty objects or arrays as empty if required', () => {
         const invalidData = {
             name: 'Test',

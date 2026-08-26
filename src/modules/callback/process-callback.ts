@@ -8,9 +8,7 @@ import {OPERATION_TYPES} from '../../core/constants/api';
 
 export class CallbackHandler {
     public handle(rawData: any): CallbackDto {
-        DtoValidator.validate(rawData, CallbackSchema);
-
-        const callback = rawData as CallbackDto;
+        const callback = DtoValidator.validate(rawData, CallbackSchema);
 
         this.validateOperationType(callback.operation);
 

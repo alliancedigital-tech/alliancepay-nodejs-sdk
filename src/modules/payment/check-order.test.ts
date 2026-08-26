@@ -32,7 +32,7 @@ describe('CheckOrderService', () => {
             post: vi.fn().mockResolvedValue(mockApiResponse)
         };
         service = new CheckOrderService(mockHttpClient);
-        vi.spyOn(DtoValidator, 'validate').mockImplementation(() => {});
+        vi.spyOn(DtoValidator, 'validate').mockImplementation((data: any) => data);
     });
 
     it('should successfully fetch and validate order data', async () => {
@@ -78,5 +78,44 @@ describe('CheckOrderService', () => {
         } catch (e) {
             expect(e).toBeInstanceOf(GeneralApiException);
         }
+    });
+
+    it('should return the validator-parsed data, coercing numeric-string operation fields (real schema)', async () => {
+        vi.restoreAllMocks();
+
+        const apiResponseWithStringNumerics = {
+            coinAmount: 2000,
+            ecomOrderId: 'ORDER-ID-001',
+            merchantId: 'MERCH-ID-99',
+            hppOrderId: 'HPP-ID-55',
+            hppPayType: 'CARD',
+            merchantRequestId: 'REQ-XYZ',
+            orderStatus: 'SUCCESS',
+            paymentMethods: ['card'],
+            operations: [{
+                type: 'PURCHASE',
+                coinAmount: 1000,
+                merchantId: 'M-1',
+                ecomOperationId: 'ECOM-1',
+                status: 'SUCCESS',
+                transactionCurrency: 'UAH',
+                transactionResponseInfo: {},
+                hppOrderId: 'HPP-ID-55',
+                sourceAmount: '1000',
+                sourceCurrencyCode: '840',
+                conversionRate: '44.00',
+            }],
+        };
+
+        mockHttpClient = {
+            post: vi.fn().mockResolvedValue(apiResponseWithStringNumerics)
+        };
+        service = new CheckOrderService(mockHttpClient);
+
+        const result: any = await service.checkOrderData(mockHppOrderId, mockAuthDto);
+
+        expect(result.operations[0].sourceAmount).toBe(1000);
+        expect(result.operations[0].sourceCurrencyCode).toBe(840);
+        expect(result.operations[0].conversionRate).toBe(44);
     });
 });

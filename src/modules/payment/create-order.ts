@@ -20,12 +20,12 @@ export class CreateOrderService {
         authDto: AuthorizationDto
     ): Promise<OrderResponseDto> {
 
-        DtoValidator.validate(orderData, OrderRequestSchema);
+        const validatedOrderData = DtoValidator.validate(orderData, OrderRequestSchema);
 
         try {
             const response = await this.httpClient.post<string | any >(
                 API.ENDPOINT_CREATE_ORDER,
-                orderData,
+                validatedOrderData,
                 authDto
             );
             ApiErrorHandler.checkResponse(PaymentException, response);

@@ -3,6 +3,7 @@ import { CreateRefundService } from './create-refund';
 import { DtoValidator } from '../../core/validator/dto-validator';
 import { API } from '../../core/constants/api';
 import { RefundException, AllianceSdkException } from '../../core/exceptions/base.exception';
+import { ValidationException } from '../../core/exceptions/validation.exception';
 
 describe('CreateRefundService', () => {
     let service: CreateRefundService;
@@ -43,7 +44,7 @@ describe('CreateRefundService', () => {
         service = new CreateRefundService(mockHttpClient, mockEncryptionService);
 
         vi.clearAllMocks();
-        vi.spyOn(DtoValidator, 'validate').mockImplementation(() => {});
+        vi.spyOn(DtoValidator, 'validate').mockImplementation((data: any) => data);
     });
 
     it('should successfully create a refund', async () => {
@@ -100,5 +101,65 @@ describe('CreateRefundService', () => {
 
         await expect(service.createRefund(mockRequestData, mockAuthDto))
             .rejects.toThrow(RefundException);
+    });
+
+    it('should convert sourceAmount + conversionRate into coinAmount before validation', async () => {
+        const { coinAmount, ...rest } = mockRequestData;
+        const requestWithConversion = { ...rest, sourceAmount: 10, conversionRate: 39.5 };
+
+        await service.createRefund(requestWithConversion, mockAuthDto);
+
+        expect(DtoValidator.validate).toHaveBeenCalledWith(
+            expect.objectContaining({ coinAmount: 39500 }),
+            expect.any(Object)
+        );
+        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
+            expect.objectContaining({ coinAmount: 39500 }),
+            JSON.stringify(mockAuthDto.serverPublic)
+        );
+
+        const validatedPayload = (DtoValidator.validate as any).mock.calls[0][0];
+        expect(validatedPayload.sourceAmount).toBeUndefined();
+        expect(validatedPayload.conversionRate).toBeUndefined();
+    });
+
+    it('should use coinAmount as-is when sourceAmount/conversionRate are not provided', async () => {
+        await service.createRefund(mockRequestData, mockAuthDto);
+
+        expect(DtoValidator.validate).toHaveBeenCalledWith(
+            expect.objectContaining({ coinAmount: mockRequestData.coinAmount }),
+            expect.any(Object)
+        );
+    });
+
+    it('should reject sourceAmount without conversionRate instead of silently falling back to a stale coinAmount', async () => {
+        const req = { ...mockRequestData, coinAmount: 1, sourceAmount: 10 };
+
+        await expect(service.createRefund(req, mockAuthDto))
+            .rejects.toThrow(ValidationException);
+        expect(mockHttpClient.post).not.toHaveBeenCalled();
+    });
+
+    it('should reject conversionRate without sourceAmount instead of silently falling back to a stale coinAmount', async () => {
+        const req = { ...mockRequestData, coinAmount: 1, conversionRate: 39.5 };
+
+        await expect(service.createRefund(req, mockAuthDto))
+            .rejects.toThrow(ValidationException);
+        expect(mockHttpClient.post).not.toHaveBeenCalled();
+    });
+
+    it('should use the converted amount over a stale coinAmount when both are provided', async () => {
+        const req = { ...mockRequestData, coinAmount: 1, sourceAmount: 10, conversionRate: 39.5 };
+
+        await service.createRefund(req, mockAuthDto);
+
+        expect(DtoValidator.validate).toHaveBeenCalledWith(
+            expect.objectContaining({ coinAmount: 39500 }),
+            expect.any(Object)
+        );
+        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
+            expect.objectContaining({ coinAmount: 39500 }),
+            JSON.stringify(mockAuthDto.serverPublic)
+        );
     });
 });

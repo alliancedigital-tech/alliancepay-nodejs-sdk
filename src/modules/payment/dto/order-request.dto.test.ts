@@ -308,6 +308,83 @@ describe('OrderRequestSchema — preAuthExpDate validation for PREAUTH', () => {
     });
 });
 
+describe('OrderRequestSchema — currencyCode validation', () => {
+    const validRequest = {
+        merchantRequestId: 'REQ-1',
+        merchantId: "M-1",
+        hppPayType: "PURCHASE",
+        coinAmount: 100,
+        paymentMethods: ["card"],
+        successUrl: "https://ok.com",
+        failUrl: "https://fail.com",
+        statusPageType: "REDIRECT",
+        customerData: {
+            senderCustomerId: "CUST-001"
+        }
+    };
+
+    it('should default currencyCode to 980 (UAH) when omitted', () => {
+        const result = OrderRequestSchema.parse(validRequest);
+        expect(result.currencyCode).toBe(980);
+    });
+
+    it('should accept currencyCode = 980 (UAH)', () => {
+        const valid = { ...validRequest, currencyCode: 980 };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept currencyCode = 840 (USD)', () => {
+        const valid = { ...validRequest, currencyCode: 840 };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept currencyCode = 978 (EUR)', () => {
+        const valid = { ...validRequest, currencyCode: 978 };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should reject an unsupported currencyCode', () => {
+        const invalid = { ...validRequest, currencyCode: 999 };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'Validation failed'
+        );
+    });
+
+    it('should reject hppPayType = A2A with a non-UAH currencyCode', () => {
+        const invalid = {
+            ...validRequest,
+            hppPayType: 'A2A',
+            merchantComment: 'Transfer comment',
+            directType: 'BANK_LINK',
+            currencyCode: 840,
+        };
+        expect(() => DtoValidator.validate(invalid, OrderRequestSchema)).toThrow(
+            'A2A payment type supports only UAH (980) for field currencyCode'
+        );
+    });
+
+    it('should accept hppPayType = A2A with currencyCode = 980 (UAH)', () => {
+        const valid = {
+            ...validRequest,
+            hppPayType: 'A2A',
+            merchantComment: 'Transfer comment',
+            directType: 'BANK_LINK',
+            currencyCode: 980,
+        };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+
+    it('should accept hppPayType = A2A with currencyCode omitted (defaults to UAH)', () => {
+        const valid = {
+            ...validRequest,
+            hppPayType: 'A2A',
+            merchantComment: 'Transfer comment',
+            directType: 'BANK_LINK',
+        };
+        expect(() => DtoValidator.validate(valid, OrderRequestSchema)).not.toThrow();
+    });
+});
+
 describe('CustomerDataSchema Validation', () => {
     const validRequest = {
         merchantRequestId: 'REQ-1',

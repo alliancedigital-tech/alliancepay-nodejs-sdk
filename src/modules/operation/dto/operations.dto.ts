@@ -1,6 +1,18 @@
 import { z } from 'zod';
 import { OPERATION_TYPES } from "../../../core/constants/api";
 
+function numericLike<T extends z.ZodTypeAny>(schema: T) {
+    return z.preprocess((val) => {
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed === '') return undefined;
+            const num = Number(trimmed);
+            return Number.isNaN(num) ? val : num;
+        }
+        return val;
+    }, schema);
+}
+
 export const BaseOperationSchema = z.object({
     rrn: z.string().trim().optional(),
     coinAmount: z.number(),
@@ -33,6 +45,9 @@ export const BaseOperationSchema = z.object({
     paymentServiceType: z.string().optional(),
     externalCardToken: z.string().optional(),
     processingDateTime: z.union([z.string(), z.instanceof(Date)]).optional(),
+    sourceAmount: numericLike(z.number().int().optional()),
+    sourceCurrencyCode: numericLike(z.number().int().optional()),
+    conversionRate: numericLike(z.number().optional()),
 });
 
 export const OperationPurchaseSchema = BaseOperationSchema.extend({

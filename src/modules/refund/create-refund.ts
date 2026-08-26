@@ -7,7 +7,13 @@ import {DtoValidator} from '../../core/validator/dto-validator';
 import {ApiErrorHandler} from '../../core/http/error/error-handler';
 import {AllianceSdkException, RefundException} from '../../core/exceptions/base.exception';
 import {EncryptionService} from '../../core/encryption/encryption';
-import {ValidationException} from "../../core/exceptions/validation.exception";
+import {CoinAmountConverter} from '../../core/utils/coin-amount-converter';
+
+export type RefundRequestInput = Omit<RefundRequestDto, 'coinAmount'> & {
+    coinAmount?: number;
+    sourceAmount?: number;
+    conversionRate?: number;
+};
 
 export class CreateRefundService {
     constructor(
@@ -18,14 +24,21 @@ export class CreateRefundService {
     }
 
     public async createRefund(
-        orderData: RefundRequestDto,
+        orderData: RefundRequestInput,
         authDto: AuthorizationDto
     ): Promise<RefundResponseDto> {
 
-        DtoValidator.validate(orderData, RefundRequestSchema);
+        const {sourceAmount, conversionRate, ...refundData} = orderData;
+
+        const resolvedRefundData = {
+            ...refundData,
+            coinAmount: CoinAmountConverter.resolveCoinAmount(refundData.coinAmount, sourceAmount, conversionRate),
+        } as RefundRequestDto;
+
+        const validatedRefundData = DtoValidator.validate(resolvedRefundData, RefundRequestSchema);
 
         try {
-            const encryptedRequest = await this.encryptionService.encrypt(orderData, JSON.stringify(authDto.serverPublic));
+            const encryptedRequest = await this.encryptionService.encrypt(validatedRefundData, JSON.stringify(authDto.serverPublic));
 
             const response = await this.httpClient.post<{ jwe: string | any }>(
                 API.ENDPOINT_REFUND,

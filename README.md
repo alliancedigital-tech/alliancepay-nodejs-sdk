@@ -8,7 +8,7 @@
 
 Перед початком роботи переконайтеся, що ваше середовище відповідає наступним вимогам:
 
-* **Node.js:** версія `20.x` або вище.
+* **Node.js:** версія `18.x` або вище.
 * **TypeScript:** рекомендовано для повної підтримки типізації.
 
 ---
@@ -18,7 +18,7 @@
 Встановіть пакет за допомогою вашого пакетного менеджера:
 
 ```bash
-npm install @alliance-bank/payment-sdk
+npm install alliance-payment-hpp-integration-sdk
 ```
 
 ### 1. Ініціалізація та Авторизація
@@ -26,7 +26,7 @@ npm install @alliance-bank/payment-sdk
 
 Приклад ініціалізації:
 ```typescript
-import { AllianceBankClient, AllianceSDKConfig } from '@alliance-bank/payment-sdk';
+import { AllianceBankClient, AllianceSDKConfig } from 'alliance-payment-hpp-integration-sdk';
 
 const config: AllianceSDKConfig = {
     authentificationData: {
@@ -43,6 +43,9 @@ const config: AllianceSDKConfig = {
 
 const client = new AllianceBankClient(config);
 ```
+#### Особливість архітектури: 
+SDK використовує Lazy Loading (ліниву ініціалізацію). 
+Внутрішні сервіси створюються лише в момент першого виклику, що робить клієнт максимально легким та економить пам'ять.
 
 ### 2. Створення замовлення
 Для створення платежу використовуйте метод `createOrder`. 
@@ -67,6 +70,43 @@ try {
     console.error('Order creation failed:', error);
 }
 ```
+
+#### Вибір валюти (UAH / USD / EUR)
+За замовчуванням замовлення створюється в **UAH**. Щоб створити замовлення в іншій валюті, передайте
+опціональне поле `currencyCode`:
+
+| Валюта | `currencyCode` |
+|--------|-----------------|
+| UAH (за замовчуванням) | `980` |
+| USD | `840` |
+| EUR | `978` |
+
+```typescript
+// Замовлення в USD
+const orderDataUsd = {
+    coinAmount: 1050, // Сума в мінімальних одиницях валюти (тут — центи USD)
+    currencyCode: 840, // USD
+    hppPayType: 'PURCHASE',
+    paymentMethods: ['CARD', 'APPLE_PAY', 'GOOGLE_PAY'],
+    successUrl: 'https://your-site.com/success',
+    failUrl: 'https://your-site.com/fail',
+    statusPageType: 'STATUS_TIMER_PAGE',
+    customerData: { senderCustomerId: 'customer_id_1' },
+};
+
+// Замовлення в EUR — так само, лише інший код валюти
+const orderDataEur = { ...orderDataUsd, currencyCode: 978 }; // EUR
+
+try {
+    const response = await client.createOrder(orderDataUsd);
+    console.log('Redirect to payment:', response.redirectUrl);
+} catch (error) {
+    console.error('Order creation failed:', error);
+}
+```
+
+> **Важливо:** платежі типу `hppPayType: 'A2A'` підтримують лише UAH (`currencyCode: 980`).
+> Якщо передати `840`/`978` разом з `A2A`, SDK кине `ValidationException` ще до відправки запиту в банк.
 
 ### 3. Обробка зворотних викликів (Callback/Webhook)
 Для автоматичної обробки повідомлень від платіжного шлюзу використовуйте метод `handleCallback`. 
@@ -127,6 +167,29 @@ try {
     console.error('Refund failed:', error);
 }
 ```
+
+#### Повернення суми в іноземній валюті
+Якщо оригінальний платіж був у USD/EUR, замість `coinAmount` можна передати `sourceAmount`
+(сума в основних одиницях валюти, напр. `10.5` USD) та `conversionRate` (курс до UAH) — SDK сам
+порахує суму повернення в копійках UAH: `coinAmount = round(sourceAmount * conversionRate * 100)`.
+
+```typescript
+try {
+    const refundResponse = await client.createRefund({
+        operationId: 'ORIGINAL_OPERATION_ID',
+        sourceAmount: 10.5,     // Сума повернення в USD/EUR
+        conversionRate: 41.2,   // Курс конвертації в UAH на момент операції
+        merchantComment: 'Повернення товару клієнтом'
+    });
+    console.log('Refund status:', refundResponse.status);
+} catch (error) {
+    console.error('Refund failed:', error);
+}
+```
+
+> `coinAmount` та пара `sourceAmount`/`conversionRate` — взаємовиключні способи задати суму.
+> Якщо передані обидва `sourceAmount` і `conversionRate`, вони мають пріоритет і `coinAmount`
+> обчислюється з них автоматично.
 
 ### 5. Попередня авторизація (PREAUTH)
 PREAUTH дозволяє заморозити кошти на картці клієнта без їх фактичного списання. Кошти утримуються до моменту виконання COMPLETION або закінчення терміну дії авторизації.
@@ -208,6 +271,38 @@ try {
 }
 ```
 
+#### Списання суми в іноземній валюті
+Так само, як і для Refund, замість `coinAmount` можна передати `sourceAmount` + `conversionRate` —
+SDK автоматично конвертує суму списання в копійки UAH перед перевіркою діапазону ±20% та відправкою запиту.
+
+```typescript
+const originalCoinAmount = 25000; // Сума оригінальної PREAUTH в копійках UAH
+
+try {
+    const completionResponse = await client.createCompletion(
+        {
+            originalOperationId: 'PREAUTH_OPERATION_ID',
+            sourceAmount: 9.6,      // Сума списання в USD/EUR
+            conversionRate: 41.2,   // Курс конвертації в UAH на момент операції
+            notificationUrl: 'https://your-site.com/api/completion-callback', // Опціонально
+        },
+        originalCoinAmount
+    );
+
+    console.log('Completion status:', completionResponse.status);
+} catch (error) {
+    if (error instanceof CompletionAmountException) {
+        console.error('Amount out of allowed range:', error.message);
+    } else {
+        console.error('Unexpected error:', error);
+    }
+}
+```
+
+> **`originalCoinAmount`** (другий аргумент) завжди залишається в копійках **UAH** — незалежно від
+> валюти списання, це сума оригінальної PREAUTH-операції, і саме з нею SDK порівнює
+> UAH-еквівалент суми COMPLETION при перевірці діапазону ±20%.
+
 ### 7. Перевірка статусу замовлення
 Якщо вам потрібно вручну перевірити поточний стан транзакції 
 (наприклад, за кроном або якщо користувач закрив сторінку оплати), 
@@ -239,7 +334,7 @@ SDK використовує типізовані помилки для точн
 
 #### Приклад перевірки помилок:
 ```typescript
-import { ValidationException, AllianceSdkException } from '@alliance-bank/payment-sdk';
+import { ValidationException, AllianceSdkException } from 'alliance-payment-hpp-integration-sdk';
 
 try {
     await client.createOrder(orderData);

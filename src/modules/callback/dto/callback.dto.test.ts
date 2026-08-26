@@ -152,4 +152,22 @@ describe('CallbackSchema Validation', () => {
         delete callbackWithoutEncryption.notificationEncryption;
         expect(() => DtoValidator.validate(callbackWithoutEncryption, CallbackSchema)).not.toThrow();
     });
+
+    it('should coerce operation.sourceCurrencyCode/conversionRate given as numeric strings (real bank callback format)', () => {
+        const callbackWithStringConversionFields = {
+            ...validCallback,
+            operation: {
+                ...validCallback.operation,
+                sourceAmount: '1000',
+                sourceCurrencyCode: '840',
+                conversionRate: '44.00',
+            },
+        };
+
+        const result = CallbackSchema.parse(callbackWithStringConversionFields);
+
+        expect(result.operation.sourceAmount).toBe(1000);
+        expect(result.operation.sourceCurrencyCode).toBe(840);
+        expect(result.operation.conversionRate).toBe(44);
+    });
 });

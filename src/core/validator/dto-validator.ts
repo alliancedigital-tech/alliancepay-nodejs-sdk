@@ -2,9 +2,9 @@ import * as z from 'zod';
 import { ValidationException } from '../exceptions/validation.exception';
 
 export class DtoValidator {
-    public static validate(data: any, schema: z.ZodSchema): void {
+    public static validate<T>(data: unknown, schema: z.ZodType<T>): T {
         try {
-            schema.parse(data);
+            return schema.parse(data);
         } catch (error) {
             if (error instanceof z.ZodError) {
                 const errors: string[] = [];

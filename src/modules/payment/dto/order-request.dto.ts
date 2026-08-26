@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import {DateTimeProvider} from '../../../core/utils/date-time.provider';
-import {HPP_PAY_TYPES} from "../../../core/constants/api";
+import {CURRENCY_CODES, HPP_PAY_TYPES, SUPPORTED_CURRENCY_CODES} from "../../../core/constants/api";
 
 export const HppProductSchema = z.object({
     name: z.string(),
@@ -63,6 +63,10 @@ export const OrderRequestSchema = z.object({
     generateQrNbu: z.boolean().optional().default(false),
     customerData: CustomerDataSchema,
     preAuthExpDate: z.string().nullable().default(null),
+    currencyCode: z.number().refine(
+        (code): code is typeof SUPPORTED_CURRENCY_CODES[number] => (SUPPORTED_CURRENCY_CODES as readonly number[]).includes(code),
+        {message: `currencyCode must be one of: ${SUPPORTED_CURRENCY_CODES.join(', ')}`}
+    ).optional().default(CURRENCY_CODES.UAH),
 }).superRefine((data, ctx) => {
     if (data.hppPayType === HPP_PAY_TYPES.A2A && !data.merchantComment) {
         ctx.addIssue({
@@ -76,6 +80,13 @@ export const OrderRequestSchema = z.object({
             code: z.ZodIssueCode.custom,
             path: ['directType'],
             message: 'directType is required when hppPayType is A2A',
+        });
+    }
+    if (data.hppPayType === HPP_PAY_TYPES.A2A && data.currencyCode !== CURRENCY_CODES.UAH) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['currencyCode'],
+            message: 'A2A payment type supports only UAH (980)',
         });
     }
     if (data.hppPayType === HPP_PAY_TYPES.PREAUTH && data.preAuthExpDate !== null) {
