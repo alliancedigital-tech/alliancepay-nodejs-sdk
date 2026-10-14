@@ -12,11 +12,12 @@ import { ValidationException } from '../../core/exceptions/validation.exception'
 describe('CreateCompletionService', () => {
     let service: CreateCompletionService;
     let mockHttpClient: any;
-    let mockEncryptionService: any;
 
     const mockAuthDto: any = {
-        serverPublic: { kty: 'EC', x: '...', y: '...' },
-        authenticationKey: 'private-key-json',
+        baseUrl: 'https://api.test.com',
+        merchantId: 'ab6c9936-2946-4f12-9202-712930bccd19',
+        jwsPrivateKey: '-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----',
+        jwsKeyId: 'kid-1',
     };
 
     const mockCompletionRequest: any = {
@@ -27,9 +28,7 @@ describe('CreateCompletionService', () => {
         date: '2024-12-19 17:59:23.54+00:00',
     };
 
-    const mockEncryptedPayload = 'ey...encrypted.completion';
-    const mockJweResponse = { jwe: 'ey...encrypted.response' };
-    const mockDecryptedResponse = {
+    const mockResponse = {
         type: 'COMPLETION',
         coinAmount: 25000,
         merchantId: 'ab6c9936-2946-4f12-9202-712930bccd19',
@@ -42,13 +41,9 @@ describe('CreateCompletionService', () => {
 
     beforeEach(() => {
         mockHttpClient = {
-            post: vi.fn().mockResolvedValue(mockJweResponse),
+            post: vi.fn().mockResolvedValue(mockResponse),
         };
-        mockEncryptionService = {
-            encrypt: vi.fn().mockResolvedValue(mockEncryptedPayload),
-            decrypt: vi.fn().mockResolvedValue(mockDecryptedResponse),
-        };
-        service = new CreateCompletionService(mockHttpClient, mockEncryptionService);
+        service = new CreateCompletionService(mockHttpClient);
 
         vi.clearAllMocks();
         vi.spyOn(DtoValidator, 'validate').mockImplementation((data: any) => data);
@@ -60,24 +55,13 @@ describe('CreateCompletionService', () => {
 
         expect(DtoValidator.validate).toHaveBeenCalledWith(mockCompletionRequest, expect.any(Object));
 
-        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
-            mockCompletionRequest,
-            JSON.stringify(mockAuthDto.serverPublic)
-        );
-
         expect(mockHttpClient.post).toHaveBeenCalledWith(
             API.ENDPOINT_COMPLETION,
-            mockEncryptedPayload,
-            mockAuthDto,
-            false
+            mockCompletionRequest,
+            mockAuthDto
         );
 
-        expect(mockEncryptionService.decrypt).toHaveBeenCalledWith(
-            mockJweResponse.jwe,
-            mockAuthDto.authenticationKey
-        );
-
-        expect(result).toEqual(mockDecryptedResponse);
+        expect(result).toEqual(mockResponse);
     });
 
     it('should accept coinAmount = originalCoinAmount (0% deviation)', async () => {
@@ -138,20 +122,8 @@ describe('CreateCompletionService', () => {
         }
     });
 
-    it('should throw CompletionException on encryption error', async () => {
-        mockEncryptionService.encrypt.mockRejectedValue(new Error('Encryption failed'));
-        await expect(service.createCompletion(mockCompletionRequest, 25000, mockAuthDto))
-            .rejects.toThrow(CompletionException);
-    });
-
     it('should throw CompletionException on HTTP error', async () => {
         mockHttpClient.post.mockRejectedValue(new Error('Network error'));
-        await expect(service.createCompletion(mockCompletionRequest, 25000, mockAuthDto))
-            .rejects.toThrow(CompletionException);
-    });
-
-    it('should throw CompletionException on decryption error', async () => {
-        mockEncryptionService.decrypt.mockRejectedValue(new Error('Decryption failed'));
         await expect(service.createCompletion(mockCompletionRequest, 25000, mockAuthDto))
             .rejects.toThrow(CompletionException);
     });
@@ -167,7 +139,7 @@ describe('CreateCompletionService', () => {
 
     it('should re-throw AllianceSdkException as-is without wrapping', async () => {
         const sdkError = new AllianceSdkException('SDK error', 'SDK_ERR');
-        mockEncryptionService.encrypt.mockRejectedValue(sdkError);
+        mockHttpClient.post.mockRejectedValue(sdkError);
         try {
             await service.createCompletion(mockCompletionRequest, 25000, mockAuthDto);
         } catch (e) {
@@ -186,9 +158,10 @@ describe('CreateCompletionService', () => {
             expect.objectContaining({ coinAmount: 39500 }),
             expect.any(Object)
         );
-        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
+        expect(mockHttpClient.post).toHaveBeenCalledWith(
+            API.ENDPOINT_COMPLETION,
             expect.objectContaining({ coinAmount: 39500 }),
-            JSON.stringify(mockAuthDto.serverPublic)
+            mockAuthDto
         );
 
         const validatedPayload = (DtoValidator.validate as any).mock.calls[0][0];
@@ -238,9 +211,10 @@ describe('CreateCompletionService', () => {
             expect.objectContaining({ coinAmount: 39500 }),
             expect.any(Object)
         );
-        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
+        expect(mockHttpClient.post).toHaveBeenCalledWith(
+            API.ENDPOINT_COMPLETION,
             expect.objectContaining({ coinAmount: 39500 }),
-            JSON.stringify(mockAuthDto.serverPublic)
+            mockAuthDto
         );
     });
 });

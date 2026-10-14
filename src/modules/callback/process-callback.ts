@@ -4,15 +4,43 @@ import {
     CallbackSchema
 } from './dto/callback.dto';
 import { ValidationException } from '../../core/exceptions/validation.exception';
-import {OPERATION_TYPES} from '../../core/constants/api';
+import { OPERATION_TYPES, API } from '../../core/constants/api';
+import { JwsVerifier } from '../../core/jws/jws-verifier';
+import { isCompactJws } from '../../core/jws/jws-format.util';
+
+export interface CallbackVerifyOptions {
+    baseUrl: string;
+}
 
 export class CallbackHandler {
-    public handle(rawData: any): CallbackDto {
-        const callback = DtoValidator.validate(rawData, CallbackSchema);
+    public async handle(rawData: any, options: CallbackVerifyOptions): Promise<CallbackDto> {
+        const payload = await this.resolvePayload(rawData, options);
+
+        const callback = DtoValidator.validate(payload, CallbackSchema);
 
         this.validateOperationType(callback.operation);
 
         return callback;
+    }
+
+    private async resolvePayload(rawData: any, options: CallbackVerifyOptions): Promise<any> {
+        if (typeof rawData === 'string') {
+            if (isCompactJws(rawData)) {
+                return await JwsVerifier.verify(rawData, { baseUrl: options.baseUrl, apiVersion: API.X_API_VERSION });
+            }
+
+            try {
+                return JSON.parse(rawData);
+            } catch {
+                throw new ValidationException(['Callback body is not valid JSON and not a valid JWS token.']);
+            }
+        }
+
+        if (rawData && typeof rawData === 'object') {
+            return rawData;
+        }
+
+        throw new ValidationException(['Callback body must be a JSON object, JSON string, or compact JWS token.']);
     }
 
     private validateOperationType(operation: any): void {

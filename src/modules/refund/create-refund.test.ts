@@ -8,11 +8,12 @@ import { ValidationException } from '../../core/exceptions/validation.exception'
 describe('CreateRefundService', () => {
     let service: CreateRefundService;
     let mockHttpClient: any;
-    let mockEncryptionService: any;
 
     const mockAuthDto: any = {
-        serverPublic: { kty: 'EC', x: '...', y: '...' },
-        authenticationKey: 'private-key-json'
+        baseUrl: 'https://api.test.com',
+        merchantId: 'm-1',
+        jwsPrivateKey: '-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----',
+        jwsKeyId: 'kid-1'
     };
 
     const mockRequestData: any = {
@@ -23,9 +24,7 @@ describe('CreateRefundService', () => {
         date: '2023-10-10'
     };
 
-    const mockEncryptedPayload = 'ey...encrypted.data';
-    const mockJweResponse = { jwe: 'ey...encrypted.response' };
-    const mockDecryptedResponse = {
+    const mockResponse = {
         status: 'success',
         rrn: '123456789',
         type: 'refund'
@@ -33,15 +32,10 @@ describe('CreateRefundService', () => {
 
     beforeEach(() => {
         mockHttpClient = {
-            post: vi.fn().mockResolvedValue(mockJweResponse)
+            post: vi.fn().mockResolvedValue(mockResponse)
         };
 
-        mockEncryptionService = {
-            encrypt: vi.fn().mockResolvedValue(mockEncryptedPayload),
-            decrypt: vi.fn().mockResolvedValue(mockDecryptedResponse)
-        };
-
-        service = new CreateRefundService(mockHttpClient, mockEncryptionService);
+        service = new CreateRefundService(mockHttpClient);
 
         vi.clearAllMocks();
         vi.spyOn(DtoValidator, 'validate').mockImplementation((data: any) => data);
@@ -52,24 +46,13 @@ describe('CreateRefundService', () => {
 
         expect(DtoValidator.validate).toHaveBeenCalledWith(mockRequestData, expect.any(Object));
 
-        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
-            mockRequestData,
-            JSON.stringify(mockAuthDto.serverPublic)
-        );
-
         expect(mockHttpClient.post).toHaveBeenCalledWith(
             API.ENDPOINT_REFUND,
-            mockEncryptedPayload,
-            mockAuthDto,
-            false
+            mockRequestData,
+            mockAuthDto
         );
 
-        expect(mockEncryptionService.decrypt).toHaveBeenCalledWith(
-            mockJweResponse.jwe,
-            mockAuthDto.authenticationKey
-        );
-
-        expect(result).toEqual(mockDecryptedResponse);
+        expect(result).toEqual(mockResponse);
     });
 
     it('should throw AllianceSdkException if validation fails', async () => {
@@ -81,23 +64,8 @@ describe('CreateRefundService', () => {
             .rejects.toThrow(AllianceSdkException);
     });
 
-    it('should handle encryption errors via ApiErrorHandler', async () => {
-        const encryptionError = new Error('Encryption failed');
-        mockEncryptionService.encrypt.mockRejectedValue(encryptionError);
-
-        await expect(service.createRefund(mockRequestData, mockAuthDto))
-            .rejects.toThrow(RefundException);
-    });
-
     it('should handle HTTP errors via ApiErrorHandler', async () => {
         mockHttpClient.post.mockRejectedValue(new Error('Network error'));
-
-        await expect(service.createRefund(mockRequestData, mockAuthDto))
-            .rejects.toThrow(RefundException);
-    });
-
-    it('should handle decryption errors via ApiErrorHandler', async () => {
-        mockEncryptionService.decrypt.mockRejectedValue(new Error('Decryption failed'));
 
         await expect(service.createRefund(mockRequestData, mockAuthDto))
             .rejects.toThrow(RefundException);
@@ -113,9 +81,10 @@ describe('CreateRefundService', () => {
             expect.objectContaining({ coinAmount: 39500 }),
             expect.any(Object)
         );
-        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
+        expect(mockHttpClient.post).toHaveBeenCalledWith(
+            API.ENDPOINT_REFUND,
             expect.objectContaining({ coinAmount: 39500 }),
-            JSON.stringify(mockAuthDto.serverPublic)
+            mockAuthDto
         );
 
         const validatedPayload = (DtoValidator.validate as any).mock.calls[0][0];
@@ -157,9 +126,10 @@ describe('CreateRefundService', () => {
             expect.objectContaining({ coinAmount: 39500 }),
             expect.any(Object)
         );
-        expect(mockEncryptionService.encrypt).toHaveBeenCalledWith(
+        expect(mockHttpClient.post).toHaveBeenCalledWith(
+            API.ENDPOINT_REFUND,
             expect.objectContaining({ coinAmount: 39500 }),
-            JSON.stringify(mockAuthDto.serverPublic)
+            mockAuthDto
         );
     });
 });

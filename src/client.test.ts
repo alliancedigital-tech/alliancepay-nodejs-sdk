@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AllianceBankClient } from './client';
-import { AuthService } from './modules/auth/authorization';
 import { CreateOrderService } from './modules/payment/create-order';
 import { CreateRefundService } from './modules/refund/create-refund';
 import { CallbackHandler } from './modules/callback/process-callback';
@@ -8,7 +7,6 @@ import { CheckOrderService } from './modules/payment/check-order';
 import { GenerateRequestIdentification } from './core/utils/request-identification';
 import { DateTimeProvider } from './core/utils/date-time.provider';
 
-vi.mock('./modules/auth/authorization');
 vi.mock('./modules/payment/create-order');
 vi.mock('./modules/refund/create-refund');
 vi.mock('./modules/callback/process-callback');
@@ -22,41 +20,28 @@ describe('AllianceBankClient', () => {
         authentificationData: {
             baseUrl: 'https://api.test.com',
             merchantId: 'M123',
-            serviceCode: 'S001',
-            authenticationKey: {}
-        } as any
+            jwsPrivateKey: '-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----',
+            jwsKeyId: 'kid-123'
+        }
     };
 
-    const mockAuthResult = {
+    const expectedAuthDto = {
+        baseUrl: 'https://api.test.com',
         merchantId: 'M123',
-        authToken: 'valid-token'
+        jwsPrivateKey: mockConfig.authentificationData.jwsPrivateKey,
+        jwsKeyId: 'kid-123'
     };
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(AuthService.prototype.authorize).mockResolvedValue(mockAuthResult as any);
         vi.mocked(GenerateRequestIdentification.generateRequestId).mockReturnValue('req-id-123');
         vi.mocked(DateTimeProvider.formattedRefundDate).mockReturnValue('2026-03-23 12:00:00');
 
         client = new AllianceBankClient(mockConfig);
     });
 
-    describe('Initialization', () => {
-        it('should instantiate correctly with lazy services', () => {
-            expect(client.auth).toBeDefined();
-            expect(client.encryption).toBeDefined();
-        });
-    });
-
-    describe('authorize', () => {
-        it('should call auth service with config data', async () => {
-            await client.authorize();
-            expect(client.auth.authorize).toHaveBeenCalledWith(mockConfig.authentificationData);
-        });
-    });
-
     describe('createOrder', () => {
-        it('should authorize, inject metadata, and call createOrderService', async () => {
+        it('should validate auth, inject metadata, and call createOrderService', async () => {
             const orderData = { coinAmount: 1000 };
             const mockResponse = { hppOrderId: 'order-1' };
 
@@ -64,15 +49,13 @@ describe('AllianceBankClient', () => {
 
             const result = await client.createOrder(orderData);
 
-            expect(client.auth.authorize).toHaveBeenCalled();
-
             expect(CreateOrderService.prototype.createOrder).toHaveBeenCalledWith(
                 expect.objectContaining({
                     coinAmount: 1000,
                     merchantId: 'M123',
                     merchantRequestId: 'req-id-123'
                 }),
-                mockAuthResult
+                expectedAuthDto
             );
 
             expect(result).toEqual(mockResponse);
@@ -93,31 +76,30 @@ describe('AllianceBankClient', () => {
                     merchantRequestId: 'req-id-123',
                     date: '2026-03-23 12:00:00'
                 }),
-                mockAuthResult
+                expectedAuthDto
             );
         });
     });
 
     describe('handleCallback', () => {
-        it('should delegate handling to CallbackHandler', async () => {
+        it('should delegate handling to CallbackHandler with baseUrl', async () => {
             const rawData = { some: 'payload' };
             vi.mocked(CallbackHandler.prototype.handle).mockResolvedValue({ ecomOrderId: '123' } as any);
 
             await client.handleCallback(rawData);
 
-            expect(CallbackHandler.prototype.handle).toHaveBeenCalledWith(rawData);
+            expect(CallbackHandler.prototype.handle).toHaveBeenCalledWith(rawData, { baseUrl: 'https://api.test.com' });
         });
     });
 
     describe('checkOrderData', () => {
-        it('should authorize and call checkOrderService', async () => {
+        it('should validate auth and call checkOrderService', async () => {
             const hppId = 'hpp-555';
             vi.mocked(CheckOrderService.prototype.checkOrderData).mockResolvedValue({ orderStatus: 'PAID' } as any);
 
             await client.checkOrderData(hppId);
 
-            expect(client.auth.authorize).toHaveBeenCalled();
-            expect(CheckOrderService.prototype.checkOrderData).toHaveBeenCalledWith(hppId, mockAuthResult);
+            expect(CheckOrderService.prototype.checkOrderData).toHaveBeenCalledWith(hppId, expectedAuthDto);
         });
     });
 });

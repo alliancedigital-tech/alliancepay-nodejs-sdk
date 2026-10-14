@@ -8,27 +8,19 @@ export class RequestBuilder {
 
     public buildOptionsFromAuthDto(
         authDto: AuthorizationDto,
-        data: string | object,
-        isJsonContent: boolean = true
+        jwsBody: string
     ): RequestConfig {
 
         const headers: Record<string, string> = {
             'x-api_version': API.X_API_VERSION,
-            'x-device_id': authDto.deviceId ?? '',
-            'x-refresh_token': authDto.refreshToken ?? '',
             'x-request_id': this.requestId ?? GenerateRequestIdentification.generateRequestId(),
-            'Content-Type': isJsonContent
-                ? API.REQUEST_CONTENT_TYPE_JSON
-                : API.REQUEST_CONTENT_TYPE_TEXT,
+            'Content-Type': API.REQUEST_CONTENT_TYPE_JWS,
+            'Accept': API.REQUEST_CONTENT_TYPE_JSON,
         };
-
-        if (data && isJsonContent) {
-            headers['Accept'] = API.REQUEST_CONTENT_TYPE_JSON;
-        }
 
         return {
             headers,
-            data: data
+            data: jwsBody
         };
     }
 }

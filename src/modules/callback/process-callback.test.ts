@@ -3,9 +3,13 @@ import { CallbackHandler } from './process-callback';
 import { DtoValidator } from '../../core/validator/dto-validator';
 import { ValidationException } from '../../core/exceptions/validation.exception';
 import { OPERATION_TYPES } from '../../core/constants/api';
+import { JwsVerifier } from '../../core/jws/jws-verifier';
+
+vi.mock('../../core/jws/jws-verifier');
 
 describe('CallbackHandler', () => {
     let handler: CallbackHandler;
+    const options = { baseUrl: 'https://api.test.com' };
 
     const validOperation = {
         type: OPERATION_TYPES.PURCHASE,
@@ -40,23 +44,46 @@ describe('CallbackHandler', () => {
         vi.clearAllMocks();
     });
 
-    it('should return callback data when input is valid', () => {
-        // Шпигуємо за валідатором, щоб переконатися, що він викликається
+    it('should return callback data when input is a parsed object', async () => {
         const validateSpy = vi.spyOn(DtoValidator, 'validate');
 
-        const result = handler.handle(validCallbackData);
+        const result = await handler.handle(validCallbackData, options);
 
         expect(result).toEqual(validCallbackData);
         expect(validateSpy).toHaveBeenCalledWith(validCallbackData, expect.any(Object));
     });
 
-    it('should throw ValidationException if DtoValidator fails', () => {
-        const invalidData = { ...validCallbackData, ecomOrderId: '' };
+    it('should parse a plain JSON string body', async () => {
+        const result = await handler.handle(JSON.stringify(validCallbackData), options);
 
-        expect(() => handler.handle(invalidData)).toThrow(ValidationException);
+        expect(result).toEqual(validCallbackData);
     });
 
-    it('should throw ValidationException if operation type is unknown', () => {
+    it('should verify a compact JWS string body via JwsVerifier', async () => {
+        vi.mocked(JwsVerifier.verify).mockResolvedValue(validCallbackData as any);
+
+        const jwsToken = 'header.payload.signature';
+        const result = await handler.handle(jwsToken, options);
+
+        expect(JwsVerifier.verify).toHaveBeenCalledWith(jwsToken, { baseUrl: options.baseUrl, apiVersion: expect.any(String) });
+        expect(result).toEqual(validCallbackData);
+    });
+
+    it('should throw ValidationException for a string that is neither JSON nor a JWS token', async () => {
+        await expect(handler.handle('not json and not jws', options)).rejects.toThrow(ValidationException);
+    });
+
+    it('should throw ValidationException for a non-object, non-string body', async () => {
+        await expect(handler.handle(42, options)).rejects.toThrow(ValidationException);
+    });
+
+    it('should throw ValidationException if DtoValidator fails', async () => {
+        const invalidData = { ...validCallbackData, ecomOrderId: '' };
+
+        await expect(handler.handle(invalidData, options)).rejects.toThrow(ValidationException);
+    });
+
+    it('should throw ValidationException if operation type is unknown', async () => {
         const dataWithInvalidType = {
             ...validCallbackData,
             operation: {
@@ -65,11 +92,11 @@ describe('CallbackHandler', () => {
             }
         };
 
-        expect(() => handler.handle(dataWithInvalidType)).toThrow(ValidationException);
-        expect(() => handler.handle(dataWithInvalidType)).toThrow(/operation.type/);
+        await expect(handler.handle(dataWithInvalidType, options)).rejects.toThrow(ValidationException);
+        await expect(handler.handle(dataWithInvalidType, options)).rejects.toThrow(/operation.type/);
     });
 
-    it('should throw ValidationException if operation type is missing', () => {
+    it('should throw ValidationException if operation type is missing', async () => {
         const dataWithNoType = {
             ...validCallbackData,
             operation: {
@@ -78,26 +105,25 @@ describe('CallbackHandler', () => {
             }
         };
 
-        expect(() => handler.handle(dataWithNoType)).toThrow(ValidationException);
-        expect(() => handler.handle(dataWithNoType)).toThrow(/operation.type/);
+        await expect(handler.handle(dataWithNoType, options)).rejects.toThrow(ValidationException);
+        await expect(handler.handle(dataWithNoType, options)).rejects.toThrow(/operation.type/);
     });
 
     it.each([
         [OPERATION_TYPES.PURCHASE],
         [OPERATION_TYPES.REFUND],
         [OPERATION_TYPES.A2A]
-    ])('should accept valid operation type: %s', (type) => {
+    ])('should accept valid operation type: %s', async (type) => {
         const data = {
             ...validCallbackData,
             operation: { ...validOperation, type }
         };
 
-        expect(() => handler.handle(data)).not.toThrow();
-        const result = handler.handle(data);
+        const result = await handler.handle(data, options);
         expect(result.operation.type).toBe(type);
     });
 
-    it('should return the validator-parsed operation, coercing numeric-string sourceCurrencyCode/conversionRate (real bank callback format)', () => {
+    it('should return the validator-parsed operation, coercing numeric-string sourceCurrencyCode/conversionRate (real bank callback format)', async () => {
         const dataWithStringConversionFields = {
             ...validCallbackData,
             operation: {
@@ -108,7 +134,7 @@ describe('CallbackHandler', () => {
             },
         };
 
-        const result: any = handler.handle(dataWithStringConversionFields);
+        const result: any = await handler.handle(dataWithStringConversionFields, options);
 
         expect(result.operation.sourceAmount).toBe(1000);
         expect(result.operation.sourceCurrencyCode).toBe(840);

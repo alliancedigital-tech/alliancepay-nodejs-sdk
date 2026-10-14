@@ -6,7 +6,6 @@ import {AuthorizationDto} from '../auth/dto/authorization.dto';
 import {DtoValidator} from '../../core/validator/dto-validator';
 import {ApiErrorHandler} from '../../core/http/error/error-handler';
 import {AllianceSdkException, CompletionAmountException, CompletionException} from '../../core/exceptions/base.exception';
-import {EncryptionService} from '../../core/encryption/encryption';
 import {CoinAmountConverter} from '../../core/utils/coin-amount-converter';
 
 export type CompletionRequestInput = Omit<CompletionRequestDto, 'coinAmount'> & {
@@ -18,7 +17,6 @@ export type CompletionRequestInput = Omit<CompletionRequestDto, 'coinAmount'> & 
 export class CreateCompletionService {
     constructor(
         private readonly httpClient: IHttpClient,
-        private readonly encryptionService: EncryptionService,
     ) {}
 
     public async createCompletion(
@@ -39,27 +37,16 @@ export class CreateCompletionService {
         this.validateCompletionAmount(validatedCompletionData.coinAmount, originalCoinAmount);
 
         try {
-            const encryptedRequest = await this.encryptionService.encrypt(
-                validatedCompletionData,
-                JSON.stringify(authDto.serverPublic)
-            );
-
-            const response = await this.httpClient.post<{ jwe: string | any }>(
+            const response = await this.httpClient.post<Partial<CompletionResponseDto>>(
                 API.ENDPOINT_COMPLETION,
-                encryptedRequest,
-                authDto,
-                false
+                validatedCompletionData,
+                authDto
             );
 
-            const decryptedData = await this.encryptionService.decrypt<Partial<CompletionResponseDto>>(
-                response.jwe,
-                authDto.authenticationKey
-            );
+            ApiErrorHandler.checkResponse(CompletionException, response);
+            DtoValidator.validate(response, CompletionResponseSchema);
 
-            ApiErrorHandler.checkResponse(CompletionException, decryptedData);
-            DtoValidator.validate(decryptedData, CompletionResponseSchema);
-
-            return decryptedData as CompletionResponseDto;
+            return response as CompletionResponseDto;
         } catch (error) {
             if (error instanceof AllianceSdkException) throw error;
             ApiErrorHandler.handle(CompletionException, error);

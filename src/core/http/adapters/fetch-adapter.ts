@@ -1,7 +1,11 @@
-import { IHttpClient, RequestConfig } from '../http-client.interface';
+import { IHttpClient } from '../http-client.interface';
 import { RequestBuilder } from '../request/request-builder';
 import { AuthorizationDto } from '../../../modules/auth/dto/authorization.dto';
 import { GeneralApiException } from '../../exceptions/base.exception';
+import { API } from '../../constants/api';
+import { JwsSigner } from '../../jws/jws-signer';
+import { JwsVerifier } from '../../jws/jws-verifier';
+import { isCompactJws } from '../../jws/jws-format.util';
 
 export class FetchAdapter implements IHttpClient {
     constructor(
@@ -9,70 +13,59 @@ export class FetchAdapter implements IHttpClient {
         private readonly requestBuilder: RequestBuilder
     ) {}
 
-    async post<T>(url: string, data: any, auth: AuthorizationDto, isJson: boolean = true): Promise<T> {
-        const config = this.requestBuilder.buildOptionsFromAuthDto(auth, data, isJson);
-        const fullUrl = this.buildUrl(url, isJson ? config.data : null);
+    async post<T>(url: string, data: any, auth: AuthorizationDto): Promise<T> {
+        const payloadJson = JSON.stringify(data ?? {});
+
+        const jwsToken = await JwsSigner.sign({
+            privateKeyPem: auth.jwsPrivateKey,
+            kid: auth.jwsKeyId,
+            targetUrl: url,
+            payloadJson,
+        });
+
+        const config = this.requestBuilder.buildOptionsFromAuthDto(auth, jwsToken);
+        const fullUrl = new URL(url, this.baseUrl).toString();
 
         const response = await fetch(fullUrl, {
             method: 'POST',
             headers: config.headers,
-            body: isJson ? JSON.stringify(data) : (config.data as BodyInit)
+            body: jwsToken
         });
 
         return this.handleResponse<T>(response);
-    }
-
-    async get<T>(url: string, data: any, auth: AuthorizationDto): Promise<T> {
-        const config = this.requestBuilder.buildOptionsFromAuthDto(auth, data);
-        const fullUrl = this.buildUrl(url, config.data);
-
-        const response = await fetch(fullUrl, {
-            method: 'GET',
-            headers: config.headers
-        });
-
-        return this.handleResponse<T>(response);
-    }
-
-    private buildUrl(url: string, params?: any): string {
-        const targetUrl = new URL(url, this.baseUrl);
-
-        if (params && typeof params === 'object') {
-            Object.keys(params).forEach(key => {
-                if (params[key] !== undefined && params[key] !== null) {
-                    targetUrl.searchParams.append(key, String(params[key]));
-                }
-            });
-        }
-
-        return targetUrl.toString();
     }
 
     private async handleResponse<T>(response: Response): Promise<T> {
-        if (!response.ok) {
-            const errorText = await response.text();
-            let msgCode = response.status.toString();
-            let msgText = errorText || `Request failed with status ${response.status}`;
-            let parsed: any = null;
+        const rawText = await response.text();
+        const parsed = await this.parseBody(rawText);
 
-            try {
-                parsed = JSON.parse(errorText);
-                if (parsed?.msgCode) msgCode = parsed.msgCode;
-                if (parsed?.msgText) msgText = parsed.msgText;
-            } catch {}
+        if (!response.ok) {
+            const msgCode = (parsed && typeof parsed === 'object' && parsed.msgCode) || response.status.toString();
+            const credentialsHint = response.status === 401
+                ? 'Unauthorized: check JWS private key and key id (kid). '
+                : '';
+            const msgText = credentialsHint + ((parsed && typeof parsed === 'object' && parsed.msgText)
+                || (typeof parsed === 'string' ? parsed : `Request failed with status ${response.status}`));
 
             throw new GeneralApiException(
                 msgText,
                 msgCode,
-                { status: response.status, ...(parsed ?? { raw: errorText }) }
+                { status: response.status, ...(parsed && typeof parsed === 'object' ? parsed : { raw: rawText }) }
             );
         }
 
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            return await response.json() as T;
+        return parsed as T;
+    }
+
+    private async parseBody(rawText: string): Promise<any> {
+        if (isCompactJws(rawText)) {
+            return await JwsVerifier.verify(rawText, { baseUrl: this.baseUrl, apiVersion: API.X_API_VERSION });
         }
 
-        return await response.text() as unknown as T;
+        try {
+            return JSON.parse(rawText);
+        } catch {
+            return rawText;
+        }
     }
 }

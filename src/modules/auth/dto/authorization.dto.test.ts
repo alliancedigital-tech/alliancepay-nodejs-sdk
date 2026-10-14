@@ -7,22 +7,27 @@ describe('AuthorizationSchema Validation', () => {
     const validAuthData = {
         baseUrl: 'https://api.test.com',
         merchantId: 'M123',
-        serviceCode: 'S001',
-        authenticationKey: { kty: 'RSA', n: '...' }
+        jwsPrivateKey: '-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----',
+        jwsKeyId: 'kid-001'
     };
 
     it('should pass with valid authorization data', () => {
         expect(() => DtoValidator.validate(validAuthData, AuthorizationSchema)).not.toThrow(ValidationException);
     });
 
-    it('should throw error if authenticationKey is not an object', () => {
-        const invalidData = { ...validAuthData, authenticationKey: 'string-key' };
+    it('should throw error if jwsPrivateKey is missing', () => {
+        const { jwsPrivateKey, ...incompleteData } = validAuthData;
+        expect(() => DtoValidator.validate(incompleteData, AuthorizationSchema)).toThrow(ValidationException);
+    });
+
+    it('should throw error if jwsPrivateKey is empty', () => {
+        const invalidData = { ...validAuthData, jwsPrivateKey: '  ' };
         expect(() => DtoValidator.validate(invalidData, AuthorizationSchema)).toThrow(ValidationException);
     });
 
-    it('should throw error if authenticationKey is empty', () => {
-        const invalidData = { ...validAuthData, authenticationKey: {} };
-        expect(() => DtoValidator.validate(invalidData, AuthorizationSchema)).toThrow(ValidationException);
+    it('should throw error if jwsKeyId is missing', () => {
+        const { jwsKeyId, ...incompleteData } = validAuthData;
+        expect(() => DtoValidator.validate(incompleteData, AuthorizationSchema)).toThrow(ValidationException);
     });
 
     it('should throw error if baseUrl is missing', () => {

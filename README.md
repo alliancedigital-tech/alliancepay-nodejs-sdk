@@ -352,3 +352,38 @@ try {
     }
 }
 ```
+
+## Підписки (рекурентні платежі)
+
+Модуль покриває лише HTTP-виклики `scheduled_payments/*` та обробку колбеків. Лише UAH (`980`).
+
+```ts
+const result = await client.createPlanWithInfiniteSchedule({
+    name: 'Premium',
+    description: 'Monthly premium', // обов'язкове поле
+    rules: [
+        {paymentNumberFrom: 1, paymentNumberTo: 1, intervalValue: 1, intervalUnit: 'MONTH', coinAmount: 0, currency: '980'},   // тріал
+        {paymentNumberFrom: 2, paymentNumberTo: 999, intervalValue: 1, intervalUnit: 'MONTH', coinAmount: 19900, currency: '980'},
+    ],
+});
+
+if (!result.isFullySuccessful()) {
+    // план створено, але "нескінченний розклад" не застосовано — потрібне ручне втручання,
+    // не позначайте план готовим до продажу
+    console.error(result.getInfiniteScheduleError());
+}
+```
+
+Методи: `createPlanWithInfiniteSchedule`, `updatePlanWithInfiniteSchedule`, `updatePlanStatus`, `deletePlanVersion`,
+`getPlan`, `searchPlans`, `createSubscriptionOrder`, `cancelSubscriptionOrder`, `triggerRecurringPayment`,
+`handleSubscriptionCallback`.
+
+- Створення/оновлення плану завжди двокроковe (`plan/create_v1|update_v1` + `plan/version/update_v1`); окремі
+  "голі" виклики не експортуються — інакше банк мовчки застосує прихований термін дії плану.
+- **`merchantRequestId` не можна ретраїти автоматично**: повторний запит створює новий об'єкт у банку.
+- Усі помилки операцій (`CreatePlanException` тощо) містять `rawPayload` — сире тіло відповіді банку.
+- Колбек: `handleSubscriptionCallback(rawBody)` першою дією перевіряє підпис. Передавайте **сире** тіло запиту
+  (у Express — `express.text({type: '*/*'})`), бо стандартний JSON body-parser може відхилити не-JSON тіло раніше.
+  Ідемпотентність обробки прив'язуйте до `getOperation()?.operationId`. Для зіставлення використовуйте `hppOrderId`.
+- DTO для `subscription-orders/*`, `recurring_subscription_v1` та колбеку поки «м'які» (відомі поля + passthrough) —
+  реальні відповіді банку ще не захоплено.
