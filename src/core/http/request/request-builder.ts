@@ -1,4 +1,4 @@
-import { API } from '../../constants/api';
+import { API, ENDPOINT_PREFIXES_WITHOUT_API_VERSION } from '../../constants/api';
 import { AuthorizationDto } from '../../../modules/auth/dto/authorization.dto';
 import { RequestConfig } from '../http-client.interface';
 import { GenerateRequestIdentification } from '../../utils/request-identification';
@@ -8,7 +8,8 @@ export class RequestBuilder {
 
     public buildOptionsFromAuthDto(
         authDto: AuthorizationDto,
-        jwsBody: string
+        jwsBody: string,
+        targetUrl?: string
     ): RequestConfig {
 
         const headers: Record<string, string> = {
@@ -17,6 +18,10 @@ export class RequestBuilder {
             'Content-Type': API.REQUEST_CONTENT_TYPE_JWS,
             'Accept': API.REQUEST_CONTENT_TYPE_JSON,
         };
+
+        if (targetUrl && ENDPOINT_PREFIXES_WITHOUT_API_VERSION.some((prefix) => targetUrl.startsWith(prefix))) {
+            delete headers['x-api_version'];
+        }
 
         return {
             headers,

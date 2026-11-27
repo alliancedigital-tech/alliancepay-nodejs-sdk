@@ -4,7 +4,7 @@ import { DtoValidator } from '../../core/validator/dto-validator';
 import { API } from '../../core/constants/api';
 import {
     AllianceSdkException, GeneralApiException,
-    PaymentException
+    PaymentException, JwsSigningException
 } from '../../core/exceptions/base.exception';
 
 import {ValidationException} from '../../core/exceptions/validation.exception';
@@ -163,4 +163,59 @@ describe('CreateOrderService', () => {
             mockAuthDto
         );
     });
+
+    it('should forward desiredThreeDsMode to the bank request body (not stripped by validation)', async () => {
+        (DtoValidator.validate as any).mockRestore();
+        mockHttpClient.post.mockResolvedValue({
+            hppOrderId: 'hpp-789',
+            merchantRequestId: 'REQ-1',
+            merchantId: 'M-1',
+            hppPayType: 'PURCHASE',
+            paymentMethods: ['CARD'],
+            orderStatus: 'CREATED',
+            coinAmount: 100,
+            redirectUrl: 'https://pay.test/redirect',
+            statusUrl: 'https://pay.test/status',
+        });
+
+        await service.createOrder({
+            merchantRequestId: 'REQ-1',
+            merchantId: 'M-1',
+            hppPayType: 'PURCHASE',
+            desiredThreeDsMode: 'MUST_NOT',
+            coinAmount: 100,
+            paymentMethods: ['CARD'],
+            successUrl: 'https://ok.com',
+            failUrl: 'https://fail.com',
+            statusPageType: 'STATUS_PAGE',
+            customerData: { senderCustomerId: 'CUST-001' },
+        } as any, mockAuthDto);
+
+        const [, body] = mockHttpClient.post.mock.calls[0];
+        expect(body.desiredThreeDsMode).toBe('MUST_NOT');
+    });
+
+    it('should not mask a JwsSigningException as PaymentException(500)', async () => {
+        mockHttpClient.post.mockRejectedValue(
+            new JwsSigningException('JWS Private Key is invalid: x', 'JWS_PRIVATE_KEY_INVALID', null)
+        );
+
+        const error: any = await service.createOrder(mockOrderRequest, mockAuthDto).catch((e) => e);
+
+        expect(error).toBeInstanceOf(JwsSigningException);
+        expect(error).not.toBeInstanceOf(PaymentException);
+        expect(error.code).toBe('JWS_PRIVATE_KEY_INVALID');
+    });
+
+    it('should still wrap bank HTTP errors (GeneralApiException) into PaymentException with the bank code', async () => {
+        mockHttpClient.post.mockRejectedValue(
+            new GeneralApiException('nope', 'b_terminal_not_found', { status: 400, msgCode: 'b_terminal_not_found', msgText: 'nope' })
+        );
+
+        const error: any = await service.createOrder(mockOrderRequest, mockAuthDto).catch((e) => e);
+
+        expect(error).toBeInstanceOf(PaymentException);
+        expect(error.code).toBe('b_terminal_not_found');
+    });
 });
+

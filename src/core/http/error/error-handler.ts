@@ -1,4 +1,4 @@
-import { AllianceSdkException } from '../../exceptions/base.exception';
+import { AllianceSdkException, GeneralApiException } from '../../exceptions/base.exception';
 
 export type ExceptionConstructor = new (message: string, code: string, originalError: any) => AllianceSdkException;
 
@@ -8,8 +8,16 @@ export class ApiErrorHandler {
         error: any,
         manualStatus?: number
     ): never {
-        const response = error.response?.data || error;
-        const status = manualStatus || error.response?.status || 500;
+        // FetchAdapter wraps non-2xx replies into GeneralApiException: the bank body (msgCode, msgText,
+        // msgAttrs) and the HTTP status live in rawPayload, so unwrap it instead of losing them.
+        const wrapped = error instanceof GeneralApiException
+            && error.rawPayload && typeof error.rawPayload === 'object'
+            ? error.rawPayload as Record<string, any>
+            : null;
+
+        const response = wrapped ?? error.response?.data ?? error;
+        const wrappedStatus = typeof wrapped?.status === 'number' ? wrapped.status : undefined;
+        const status = manualStatus || wrappedStatus || error.response?.status || 500;
 
         const msgType = response.msgType || 'ERROR';
         const msgCode = response.msgCode || status.toString();

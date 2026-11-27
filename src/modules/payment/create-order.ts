@@ -4,7 +4,9 @@ import {OrderResponseDto, OrderResponseSchema} from './dto/order-response.dto';
 import {OrderRequestDto, OrderRequestSchema} from './dto/order-request.dto';
 import {AuthorizationDto} from '../auth/dto/authorization.dto';
 import {DtoValidator} from '../../core/validator/dto-validator';
-import {AllianceSdkException, GeneralApiException, PaymentException} from '../../core/exceptions/base.exception';
+import {
+    AllianceSdkException, GeneralApiException, JwsSigningException, JwsVerificationException, PaymentException,
+} from '../../core/exceptions/base.exception';
 import {ApiErrorHandler} from '../../core/http/error/error-handler';
 import {ValidationException} from '../../core/exceptions/validation.exception';
 
@@ -33,7 +35,10 @@ export class CreateOrderService {
 
             return response as OrderResponseDto;
         } catch (error) {
-            if (error instanceof ValidationException) {
+            // Помилки підпису/верифікації мають власні коди (напр. JWS_PRIVATE_KEY_INVALID) — не маскувати їх під "500".
+            if (error instanceof ValidationException
+                || error instanceof JwsSigningException
+                || error instanceof JwsVerificationException) {
                 throw error;
             }
             ApiErrorHandler.handle(PaymentException, error);

@@ -1,0 +1,28 @@
+{
+    "status": "SUCCESS",
+    "bucketId": "1700000000001ExampleBucket01",
+    "products": [
+        {
+            "id": "14",
+            "name": "Test product",
+            "count": 1,
+            "taxCode": 1,
+            "unitPrice": 1,
+            "measurementCode": "0001"
+        }
+    ],
+    "errorCode": null,
+    "merchantId": "00000000-0000-4000-8000-000000000001",
+    "receiptUrl": "https://receipts.example.com/public/check/1700000000001ExampleBucket01/generate_receipt",
+    "operationId": "1700000000000ExampleOper001",
+    "fiscalNumber": "1234567890",
+    "operationType": "PURCHASE",
+    "receiptComment": "PAYMENT_FOR_ORDER_445",
+    "notificationUrl": "https://shop.example.com/fiscalization-callback",
+    "creationDateTime": "2026-10-22T11:14:55.242525+03:00",
+    "errorDescription": null,
+    "merchantRequestId": "00000000-0000-4000-8000-000000000002",
+    "modificationDateTime": "2026-10-22T11:14:59.41567+03:00",
+    "fiscalizationDateTime": "2026-10-22T11:14:58+03:00",
+    "fiscalizationModificationDateTime": "2026-10-22T11:14:58.951+03:00"
+}

@@ -46,6 +46,7 @@ export const OrderRequestSchema = z.object({
     hppPayType: z.enum([HPP_PAY_TYPES.A2A, HPP_PAY_TYPES.PURCHASE, HPP_PAY_TYPES.PREAUTH]),
     directType: z.enum(['REDIRECT', 'BANK_LINK']).optional(),
     hppTryMode: z.string().optional(),
+    desiredThreeDsMode: z.string().min(1).max(50).optional(),
     expirationTimeMinutes: z.number().int().min(60).max(1440).optional(),
     coinAmount: z.number().int().positive(),
     paymentMethods: z.array(z.string()).nonempty(),

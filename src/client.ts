@@ -42,12 +42,31 @@ import {
     SubscriptionOrderCancelResponseDto,
     RecurringPaymentTriggerResponseDto,
 } from './modules/subscription/dto/subscription-order.dto';
+import {FiscalizationException} from './core/exceptions/base.exception';
+import {CreateFiscalizationService} from './modules/fiscalization/create-fiscalization';
+import {FiscalizationCallbackHandler} from './modules/fiscalization/fiscalization-callback-handler';
+import {FiscalizationResponseDto, FiscalizationCallbackDTO} from './modules/fiscalization/dto/fiscalization-response.dto';
 
 export * from './core/exceptions/base.exception';
 export {ValidationException} from './core/exceptions/validation.exception';
 export {PlanLifecycleResult} from './modules/subscription/plan-lifecycle-result';
 export {SubscriptionCallbackDTO} from './modules/subscription/dto/subscription-callback.dto';
 export {parseBankDate} from './modules/subscription/dto/plan-response.dto';
+export {FiscalizationCallbackDTO} from './modules/fiscalization/dto/fiscalization-response.dto';
+export type {FiscalizationResponseDto} from './modules/fiscalization/dto/fiscalization-response.dto';
+export type {FiscalizationRequestDto, FiscalProductDto} from './modules/fiscalization/dto/fiscalization-request.dto';
+export {resolveFiscalProductFields, parseExciseLabels} from './modules/fiscalization/fiscal-product-resolver';
+export type {FiscalAttrs, ResolvedFiscalFields} from './modules/fiscalization/fiscal-product-resolver';
+export {buildFiscalProducts} from './modules/fiscalization/fiscal-products-builder';
+export type {FiscalLineInput, BuildFiscalProductsOptions} from './modules/fiscalization/fiscal-products-builder';
+export {shouldApplyFiscalizationUpdate} from './modules/fiscalization/fiscalization-status';
+export {
+    FISCAL_DEFAULT_MEASUREMENT_CODE,
+    FISCAL_CLASSIFICATION_REQUIRED_TAX_CODES,
+    FISCALIZATION_STATUS,
+    FISCALIZATION_OPERATION_TYPE,
+    FISCALIZATION_ERROR_CODES,
+} from './modules/fiscalization/fiscalization.constants';
 export type {PlanRequestDto, PlanRuleDto} from './modules/subscription/dto/plan-request.dto';
 export type {PlanResponseDto} from './modules/subscription/dto/plan-response.dto';
 export type {PlanDetailsDto} from './modules/subscription/dto/get-plan.dto';
@@ -56,6 +75,8 @@ export type {SearchPlansResponseDto} from './modules/subscription/dto/search-pla
 export interface AllianceSDKConfig {
     authentificationData: AuthorizationDto;
     httpClient?: IHttpClient;
+    /** Optional timeout (ms) of the default HTTP client; ignored when `httpClient` is supplied. */
+    timeoutMs?: number;
 }
 
 export class AllianceBankClient {
@@ -76,13 +97,16 @@ export class AllianceBankClient {
     private cancelSubscriptionOrderService: CancelSubscriptionOrderService;
     private triggerRecurringPaymentService: TriggerRecurringPaymentService;
     private subscriptionCallbackHandler: SubscriptionCallbackHandler;
+    private createFiscalizationService: CreateFiscalizationService;
+    private fiscalizationCallbackHandler: FiscalizationCallbackHandler;
 
     constructor(config: AllianceSDKConfig) {
         this.config = config;
         this.requestBuilder = new RequestBuilder();
         this.http = config.httpClient ?? new FetchAdapter(
             config.authentificationData.baseUrl,
-            this.requestBuilder
+            this.requestBuilder,
+            config.timeoutMs
         );
         this.createOrderService = new CreateOrderService(this.http);
         this.createRefundService = new CreateRefundService(this.http);
@@ -102,6 +126,8 @@ export class AllianceBankClient {
         this.cancelSubscriptionOrderService = new CancelSubscriptionOrderService(this.http);
         this.triggerRecurringPaymentService = new TriggerRecurringPaymentService(this.http);
         this.subscriptionCallbackHandler = new SubscriptionCallbackHandler();
+        this.createFiscalizationService = new CreateFiscalizationService(this.http);
+        this.fiscalizationCallbackHandler = new FiscalizationCallbackHandler();
     }
 
     private validatedAuth(): AuthorizationDto {
@@ -244,7 +270,54 @@ export class AllianceBankClient {
         }, authDto);
     }
 
-    public async handleSubscriptionCallback(rawBody: unknown): Promise<SubscriptionCallbackDTO> {
-        return this.subscriptionCallbackHandler.handle(rawBody, {baseUrl: this.config.authentificationData.baseUrl});
+    public async handleSubscriptionCallback(
+        rawBody: unknown,
+        opts: { allowUnsigned?: boolean } = {}
+    ): Promise<SubscriptionCallbackDTO> {
+        return this.subscriptionCallbackHandler.handle(rawBody, {
+            baseUrl: this.config.authentificationData.baseUrl,
+            allowUnsigned: opts.allowUnsigned,
+        });
+    }
+
+    /**
+     * Fiscalizes a successful PURCHASE/REFUND operation. `notificationUrl` and `products` are required.
+     * Pass your own `merchantRequestId` (1..36 chars) to make a retry idempotent; otherwise one is generated.
+     * On failure the used id is available in `error.rawPayload.merchantRequestId`.
+     * No automatic retries: after a timeout check the receipt status first, then retry with the SAME id.
+     */
+    public async createFiscalization(data: object): Promise<FiscalizationResponseDto> {
+        const authDto = this.validatedAuth();
+        const provided = (data as Record<string, unknown>).merchantRequestId;
+        const merchantRequestId = typeof provided === 'string' && provided !== ''
+            ? provided
+            : GenerateRequestIdentification.generateRequestId();
+
+        try {
+            return await this.createFiscalizationService.createFiscalization({
+                ...data,
+                merchantId: authDto.merchantId,
+                merchantRequestId,
+            }, authDto);
+        } catch (error) {
+            if (error instanceof FiscalizationException) {
+                const raw = error.rawPayload;
+                const payload = raw && typeof raw === 'object' && !Array.isArray(raw)
+                    ? { ...raw, merchantRequestId }
+                    : { cause: raw ?? null, merchantRequestId };
+                throw new FiscalizationException(error.message, error.code, payload);
+            }
+            throw error;
+        }
+    }
+
+    public async handleFiscalizationCallback(
+        rawBody: unknown,
+        opts: { allowUnsigned?: boolean } = {}
+    ): Promise<FiscalizationCallbackDTO> {
+        return this.fiscalizationCallbackHandler.handle(rawBody, {
+            baseUrl: this.config.authentificationData.baseUrl,
+            allowUnsigned: opts.allowUnsigned,
+        });
     }
 }

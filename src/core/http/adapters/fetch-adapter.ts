@@ -10,7 +10,9 @@ import { isCompactJws } from '../../jws/jws-format.util';
 export class FetchAdapter implements IHttpClient {
     constructor(
         private readonly baseUrl: string,
-        private readonly requestBuilder: RequestBuilder
+        private readonly requestBuilder: RequestBuilder,
+        /** Optional request timeout in ms; no timeout when omitted. */
+        private readonly timeoutMs?: number
     ) {}
 
     async post<T>(url: string, data: any, auth: AuthorizationDto): Promise<T> {
@@ -23,16 +25,28 @@ export class FetchAdapter implements IHttpClient {
             payloadJson,
         });
 
-        const config = this.requestBuilder.buildOptionsFromAuthDto(auth, jwsToken);
+        const config = this.requestBuilder.buildOptionsFromAuthDto(auth, jwsToken, url);
         const fullUrl = new URL(url, this.baseUrl).toString();
 
-        const response = await fetch(fullUrl, {
-            method: 'POST',
-            headers: config.headers,
-            body: jwsToken
-        });
+        try {
+            const response = await fetch(fullUrl, {
+                method: 'POST',
+                headers: config.headers,
+                body: jwsToken,
+                ...(this.timeoutMs ? { signal: AbortSignal.timeout(this.timeoutMs) } : {}),
+            });
 
-        return this.handleResponse<T>(response);
+            return await this.handleResponse<T>(response);
+        } catch (error: any) {
+            if (error?.name === 'TimeoutError') {
+                throw new GeneralApiException(
+                    `Request timed out after ${this.timeoutMs} ms`,
+                    'REQUEST_TIMEOUT',
+                    { msgCode: 'REQUEST_TIMEOUT', msgText: `Request timed out after ${this.timeoutMs} ms` }
+                );
+            }
+            throw error;
+        }
     }
 
     private async handleResponse<T>(response: Response): Promise<T> {

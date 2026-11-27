@@ -16,8 +16,12 @@ export const API = {
     ENDPOINT_SUBSCRIPTION_ORDER_CREATE: '/ecom/jws/scheduled_payments/subscription-orders/create_v1',
     ENDPOINT_SUBSCRIPTION_ORDER_CANCEL: '/ecom/jws/scheduled_payments/subscription-orders/cancel_v1',
     ENDPOINT_RECURRING_PAYMENT_TRIGGER: '/ecom/jws/scheduled_payments/payments/recurring_subscription_v1',
+    ENDPOINT_FISCALIZATION_CREATE: '/ecom/jws/cashbox/v2/fiscalization/create',
     ENDPOINT_PUBLIC_KEY: '/ecom/keys/public_key/get_v1',
 } as const;
+
+/** Endpoints that must be called WITHOUT the x-api_version header. */
+export const ENDPOINT_PREFIXES_WITHOUT_API_VERSION = ['/ecom/jws/cashbox/'] as const;
 
 export enum OPERATION_TYPES {
     PURCHASE = 'PURCHASE',

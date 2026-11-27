@@ -101,4 +101,31 @@ describe('FetchAdapter', () => {
 
         await expect(adapter.post('/x', {}, authDto)).rejects.toThrow(GeneralApiException);
     });
+
+    it('should not send x-api_version to the fiscalization endpoint', async () => {
+        (fetch as any).mockResolvedValue({ ok: true, text: async () => '{}' });
+
+        await adapter.post('/ecom/jws/cashbox/v2/fiscalization/create', {}, authDto);
+
+        expect((fetch as any).mock.calls[0][1].headers['x-api_version']).toBeUndefined();
+    });
+
+    it('should convert a fetch timeout into GeneralApiException(REQUEST_TIMEOUT)', async () => {
+        const timeoutAdapter = new FetchAdapter('https://api.test.com', new RequestBuilder(), 1500);
+        const timeoutError = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+        (fetch as any).mockRejectedValue(timeoutError);
+
+        await expect(timeoutAdapter.post('/x', {}, authDto)).rejects.toMatchObject({
+            code: 'REQUEST_TIMEOUT',
+        });
+        expect((fetch as any).mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('should not set a signal when no timeout is configured', async () => {
+        (fetch as any).mockResolvedValue({ ok: true, text: async () => '{}' });
+
+        await adapter.post('/x', {}, authDto);
+
+        expect((fetch as any).mock.calls[0][1].signal).toBeUndefined();
+    });
 });

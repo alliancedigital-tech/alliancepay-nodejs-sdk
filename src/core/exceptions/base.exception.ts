@@ -31,3 +31,4 @@ export class SearchPlansException extends AllianceSdkException {}
 export class CreateSubscriptionOrderException extends AllianceSdkException {}
 export class CancelSubscriptionOrderException extends AllianceSdkException {}
 export class TriggerRecurringPaymentException extends AllianceSdkException {}
+export class FiscalizationException extends AllianceSdkException {}

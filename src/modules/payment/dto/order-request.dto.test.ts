@@ -494,4 +494,21 @@ describe('CustomerDataSchema Validation', () => {
             'Validation failed: Invalid IP address for field customerData.senderIp'
         );
     });
+
+    describe('desiredThreeDsMode', () => {
+        it('should accept the optional desiredThreeDsMode and keep it in the validated output', () => {
+            const parsed = DtoValidator.validate({ ...validRequest, desiredThreeDsMode: 'MUST_NOT' }, OrderRequestSchema);
+            expect(parsed.desiredThreeDsMode).toBe('MUST_NOT');
+        });
+
+        it('should stay valid and omit the field when desiredThreeDsMode is not provided', () => {
+            const parsed = DtoValidator.validate(validRequest, OrderRequestSchema);
+            expect(parsed).not.toHaveProperty('desiredThreeDsMode');
+        });
+
+        it('should reject an empty desiredThreeDsMode', () => {
+            expect(() => DtoValidator.validate({ ...validRequest, desiredThreeDsMode: '' }, OrderRequestSchema)).toThrow(/desiredThreeDsMode/);
+        });
+    });
 });
+

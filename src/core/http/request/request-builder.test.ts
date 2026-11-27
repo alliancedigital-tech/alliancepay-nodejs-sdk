@@ -44,4 +44,14 @@ describe('RequestBuilder', () => {
         expect(result.headers['x-request_id']).toBe(customId);
         expect(GenerateRequestIdentification.generateRequestId).not.toHaveBeenCalled();
     });
+
+    it('should omit x-api_version for cashbox endpoints only', () => {
+        const cashbox = builder.buildOptionsFromAuthDto(mockAuthDto, 'jws', '/ecom/jws/cashbox/v2/fiscalization/create');
+        const payments = builder.buildOptionsFromAuthDto(mockAuthDto, 'jws', '/ecom/jws/payments/refund_v1');
+        const noUrl = builder.buildOptionsFromAuthDto(mockAuthDto, 'jws');
+
+        expect(cashbox.headers['x-api_version']).toBeUndefined();
+        expect(payments.headers['x-api_version']).toBe(API.X_API_VERSION);
+        expect(noUrl.headers['x-api_version']).toBe(API.X_API_VERSION);
+    });
 });

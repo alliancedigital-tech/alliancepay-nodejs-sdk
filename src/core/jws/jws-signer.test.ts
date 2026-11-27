@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { decodeProtectedHeader, compactVerify, importSPKI } from 'jose';
-import { JwsSigner } from './jws-signer';
+import { JwsSigner, normalizePrivateKeyPem } from './jws-signer';
 import { JwsSigningException } from '../exceptions/base.exception';
 import { GenerateRequestIdentification } from '../utils/request-identification';
 
@@ -120,4 +120,132 @@ describe('JwsSigner', () => {
             payloadJson: '{}',
         })).rejects.toThrow(JwsSigningException);
     });
+
+    describe('ES256 (EC P-256 keys)', () => {
+        let ecPrivatePem: string;
+        let ecPublicPem: string;
+
+        beforeAll(() => {
+            const { privateKey, publicKey } = generateKeyPairSync('ec', {
+                namedCurve: 'prime256v1',
+                publicKeyEncoding: { type: 'spki', format: 'pem' },
+                privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+            });
+            ecPrivatePem = privateKey as unknown as string;
+            ecPublicPem = publicKey as unknown as string;
+        });
+
+        it('should use ES256 with the same 5-field header for an EC P-256 key', async () => {
+            const token = await JwsSigner.sign({
+                privateKeyPem: ecPrivatePem, kid: 'kid-ec', targetUrl: '/x', payloadJson: '{}',
+            });
+
+            expect(decodeProtectedHeader(token)).toEqual({
+                alg: 'ES256',
+                ts: expect.any(String),
+                targetUrl: '/x',
+                kid: 'kid-ec',
+                jti: expect.stringMatching(UUID_REGEX),
+            });
+        });
+
+        it('should produce a raw R||S signature (64 bytes) verifiable with the public key', async () => {
+            const token = await JwsSigner.sign({
+                privateKeyPem: ecPrivatePem, kid: 'kid-ec', targetUrl: '/x', payloadJson: '{"a":1}',
+            });
+
+            const signature = Buffer.from(token.split('.')[2], 'base64url');
+            expect(signature).toHaveLength(64);
+
+            const publicKey = await importSPKI(ecPublicPem, 'ES256');
+            const { payload } = await compactVerify(token, publicKey);
+            expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({ a: 1 });
+        });
+
+        it('should keep RS256 for RSA keys', async () => {
+            const token = await JwsSigner.sign({
+                privateKeyPem, kid: 'kid-rsa', targetUrl: '/x', payloadJson: '{}',
+            });
+            expect(decodeProtectedHeader(token).alg).toBe('RS256');
+        });
+
+        it('should reject an EC key on another curve with a clear error code', async () => {
+            const { privateKey } = generateKeyPairSync('ec', {
+                namedCurve: 'secp384r1',
+                publicKeyEncoding: { type: 'spki', format: 'pem' },
+                privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+            });
+
+            await expect(JwsSigner.sign({
+                privateKeyPem: privateKey as unknown as string, kid: 'k', targetUrl: '/x', payloadJson: '{}',
+            })).rejects.toMatchObject({ code: 'JWS_PRIVATE_KEY_UNSUPPORTED_CURVE' });
+        });
+
+        it('should reject unsupported key types (ed25519)', async () => {
+            const { privateKey } = generateKeyPairSync('ed25519', {
+                publicKeyEncoding: { type: 'spki', format: 'pem' },
+                privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+            });
+
+            await expect(JwsSigner.sign({
+                privateKeyPem: privateKey as unknown as string, kid: 'k', targetUrl: '/x', payloadJson: '{}',
+            })).rejects.toMatchObject({ code: 'JWS_PRIVATE_KEY_UNSUPPORTED_TYPE' });
+        });
+    });
+
+    describe('PEM normalization (keys that lost their line breaks)', () => {
+        const ecKeys = generateKeyPairSync('ec', {
+            namedCurve: 'prime256v1',
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        });
+        const ecPem = ecKeys.privateKey as unknown as string;
+        const ecPub = ecKeys.publicKey as unknown as string;
+        const bodyOf = (pem: string) => pem.replace(/-----[A-Z ]+-----|\s/g, '');
+
+        const variants: Record<string, (pem: string) => string> = {
+            'single line': (pem) => `-----BEGIN PRIVATE KEY-----${bodyOf(pem)}-----END PRIVATE KEY-----`,
+            'literal \\n': (pem) => pem.trim().replace(/\n/g, '\\n'),
+            'CRLF': (pem) => pem.replace(/\n/g, '\r\n'),
+            'quoted with whitespace': (pem) => `  "${pem.trim().replace(/\n/g, '\\n')}"  `,
+            'spaces instead of newlines': (pem) => pem.trim().replace(/\n/g, ' '),
+        };
+
+        it.each(Object.keys(variants))('should sign with an EC key given as: %s', async (name) => {
+            const token = await JwsSigner.sign({
+                privateKeyPem: variants[name](ecPem), kid: 'k', targetUrl: '/x', payloadJson: '{"a":1}',
+            });
+
+            expect(decodeProtectedHeader(token).alg).toBe('ES256');
+            const { payload } = await compactVerify(token, await importSPKI(ecPub, 'ES256'));
+            expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({ a: 1 });
+        });
+
+        it('should sign with a single-line RSA key using RS256', async () => {
+            const token = await JwsSigner.sign({
+                privateKeyPem: `-----BEGIN PRIVATE KEY-----${bodyOf(privateKeyPem)}-----END PRIVATE KEY-----`,
+                kid: 'k', targetUrl: '/x', payloadJson: '{}',
+            });
+            expect(decodeProtectedHeader(token).alg).toBe('RS256');
+        });
+
+        it('should leave an already valid PEM semantically unchanged', () => {
+            expect(bodyOf(normalizePrivateKeyPem(ecPem))).toBe(bodyOf(ecPem));
+            expect(normalizePrivateKeyPem(ecPem)).toMatch(/^-----BEGIN PRIVATE KEY-----\n[\s\S]+\n-----END PRIVATE KEY-----\n$/);
+        });
+
+        it('should return input without a PEM block or with an empty body unchanged', () => {
+            expect(normalizePrivateKeyPem('not a key')).toBe('not a key');
+            expect(normalizePrivateKeyPem('-----BEGIN PRIVATE KEY----------END PRIVATE KEY-----'))
+                .toBe('-----BEGIN PRIVATE KEY----------END PRIVATE KEY-----');
+        });
+
+        it('should still reject garbage between valid headers with JWS_PRIVATE_KEY_INVALID', async () => {
+            await expect(JwsSigner.sign({
+                privateKeyPem: '-----BEGIN PRIVATE KEY-----bm90IGEga2V5-----END PRIVATE KEY-----',
+                kid: 'k', targetUrl: '/x', payloadJson: '{}',
+            })).rejects.toMatchObject({ code: 'JWS_PRIVATE_KEY_INVALID' });
+        });
+    });
 });
+

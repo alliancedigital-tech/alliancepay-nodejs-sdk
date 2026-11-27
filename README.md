@@ -51,6 +51,8 @@ SDK використовує Lazy Loading (ліниву ініціалізаці
 Для створення платежу використовуйте метод `createOrder`. 
 SDK автоматично додає ваш `merchantId` та генерує унікальний `merchantRequestId` для кожного запиту.
 
+Необов'язковий параметр `desiredThreeDsMode` (рядок, наприклад `MUST_NOT`) передається в банк як є; повний перелік режимів визначає банк.
+
 #### Приклад коду:
 ```typescript
 const orderData = {
@@ -330,6 +332,7 @@ SDK використовує типізовані помилки для точн
 | `PaymentException`           | Помилки на рівні платіжної логіки (наприклад, недостатньо коштів для повернення). |
 | `CompletionException`        | Помилки HTTP, шифрування або API під час виконання COMPLETION. |
 | `CompletionAmountException`  | Сума COMPLETION виходить за межі ±20% від суми оригінальної PREAUTH. |
+| `FiscalizationException`     | Помилки фіскалізації: `code` = `msgCode` банку (`payment_not_found`, `original_receipt_not_found`, …), `REQUEST_TIMEOUT`, мережеві помилки. |
 | `AllianceSdkException`       | Базовий клас для всіх кастомних помилок SDK. |
 
 #### Приклад перевірки помилок:
@@ -387,3 +390,211 @@ if (!result.isFullySuccessful()) {
   Ідемпотентність обробки прив'язуйте до `getOperation()?.operationId`. Для зіставлення використовуйте `hppOrderId`.
 - DTO для `subscription-orders/*`, `recurring_subscription_v1` та колбеку поки «м'які» (відомі поля + passthrough) —
   реальні відповіді банку ще не захоплено.
+
+## Ключ підпису JWS: EC P-256 (ES256) та RSA (RS256)
+
+Алгоритм підпису запитів обирається автоматично за типом приватного ключа (`jwsPrivateKey`, PEM PKCS#8,
+`-----BEGIN PRIVATE KEY-----`):
+
+| Ключ | Алгоритм | Примітка |
+|------|----------|----------|
+| EC, крива P-256 (`prime256v1`) | `ES256` | Підпис у форматі JWS (R‖S, 64 байти). Поточний вимог банку. |
+| RSA | `RS256` | Лишається для чинних інтеграцій. |
+| EC іншої кривої, Ed25519 тощо | — | `JwsSigningException` з кодом `JWS_PRIVATE_KEY_UNSUPPORTED_CURVE` / `JWS_PRIVATE_KEY_UNSUPPORTED_TYPE`. |
+
+SDK приймає PEM і з втраченими переносами рядків (ключ в один рядок, літеральні `\n`, CRLF, лапки) — він автоматично відновлюється до стандартного вигляду.
+
+`jwsKeyId` (`kid`) має відповідати саме цьому ключу. Помилка `JWS_PRIVATE_KEY_INVALID` / «Key not found or is invalid»
+зазвичай означає, що ключ не PKCS#8 PEM або не відповідає алгоритму.
+
+Необов'язковий таймаут HTTP-запитів: `new AllianceBankClient({ authentificationData, timeoutMs: 15000 })`
+(діє лише для вбудованого HTTP-клієнта; без значення таймауту немає).
+
+## Фіскалізація (Alliance Kasa)
+
+Модуль фіскалізує успішні операції `PURCHASE` та `REFUND` (створення фіскального чека) через `/ecom/jws/cashbox/*` і
+приймає підписаний callback зі статусом чека. Доступні методи клієнта: `createFiscalization(data)` та
+`handleFiscalizationCallback(rawBody)`. Допоміжні функції: `resolveFiscalProductFields`, `buildFiscalProducts`,
+`parseExciseLabels`, `shouldApplyFiscalizationUpdate`.
+
+> SDK **не** зберігає дані й не вирішує, коли фіскалізувати: налаштування («увімкнено», «автоматична»), таблиця записів,
+> атрибути товарів, кнопки в адмінці, нотатки в замовленні та публічний ендпоінт callback-а — на боці вашого застосунку.
+
+### 1. Підготовка податкових полів товару
+Функція `resolveFiscalProductFields` визначає значення податкових полів. Кожне поле вибирається окремо за пріоритетом:
+атрибут товару → значення за замовчуванням із налаштувань → (лише `measurementCode`) `"0001"` (штука).
+Для варіантів товару схему «варіант → батьківський товар» зливайте самостійно до виклику.
+
+#### Приклад коду:
+```typescript
+import { resolveFiscalProductFields } from 'alliance-payment-hpp-integration-sdk';
+
+const fields = resolveFiscalProductFields(
+    { taxCode: product.taxCode, classificationCode: product.uktzed },   // атрибути товару
+    {                                                                   // дефолти з налаштувань
+        taxCode: settings.taxCode,
+        classificationCode: settings.uktzed,
+        exciseLabels: settings.exciseLabels,
+        measurementCode: settings.measurementCode,
+    },
+    product.name
+);
+```
+
+Якщо акцизні марки зберігаються одним рядком, розбийте їх функцією `parseExciseLabels`.
+
+### 2. Формування позицій чека
+Функція `buildFiscalProducts` перетворює позиції замовлення на `products` для запиту.
+
+* Ціни вказуються у **гривнях** (не в копійках).
+* Знижка кошика та остача округлення розподіляються так, що `Σ(count × unitPrice) == expectedTotal`
+  (за потреби остання позиція розбивається на дві).
+* Платна доставка передається окремою позицією-послугою.
+
+#### Приклад коду:
+```typescript
+import { buildFiscalProducts } from 'alliance-payment-hpp-integration-sdk';
+
+const products = buildFiscalProducts(
+    [
+        { id: product.id, name: product.name, count: 2, unitPrice: 120, ...fields },
+        { id: 'delivery', name: 'Доставка', count: 1, unitPrice: 50, measurementCode: '0001' },
+    ],
+    { expectedTotal: 280 } // фактично оплачена сума (UAH)
+);
+```
+
+### 3. Створення фіскального чека
+Для відправки використовуйте `createFiscalization`. SDK автоматично додає ваш `merchantId` та генерує унікальний
+`merchantRequestId` — **збережіть його з відповіді**. Для ідемпотентного повтору можна передати власний
+`merchantRequestId` (1–36 символів); при помилці використаний id доступний у `error.rawPayload.merchantRequestId`.
+
+**Безпечний повтор після `REQUEST_TIMEOUT` / мережевої помилки** (запит міг дійти до банку; SDK нічого не ретраїть сам):
+1. Візьміть `merchantRequestId` з `error.rawPayload.merchantRequestId` (або ваш власний, збережений до виклику).
+2. Спершу перевірте статус: чи прийшов callback / чи є запис чека за `operationId`.
+3. Лише якщо чека немає — повторіть `createFiscalization` з **тим самим** `merchantRequestId`.
+Дедуплікацію на боці банку за `merchantRequestId`/`operationId` уточніть окремо — не покладайтеся на неї без підтвердження.
+
+| Поле               | Обов'язкове | Опис |
+|--------------------|-------------|------|
+| `operationId`      | так         | Ідентифікатор успішної операції `PURCHASE` або `REFUND`. |
+| `notificationUrl`  | так         | URL вашого ендпоінта, на який банк надішле callback. |
+| `products`         | так         | Непорожній масив позицій (див. розділ 2). |
+| `receiptComment`   | ні          | Коментар до чека, напр. `PAYMENT_FOR_ORDER_445`. |
+
+#### Приклад виконання:
+```typescript
+import { FiscalizationException, ValidationException } from 'alliance-payment-hpp-integration-sdk';
+
+try {
+    const result = await client.createFiscalization({
+        operationId,                                   // PURCHASE або REFUND
+        receiptComment: `PAYMENT_FOR_ORDER_${orderId}`,
+        notificationUrl: 'https://shop.example.com/fiscalization/callback',
+        products,
+    });
+
+    console.log('Status:', result.status);               // PENDING | SUCCESS | FAIL
+    console.log('Request ID:', result.merchantRequestId); // збережіть у вашій БД
+    // FAIL приходить як звичайна відповідь: дивіться result.errorCode / result.errorDescription
+} catch (e) {
+    if (e instanceof ValidationException) {
+        // Локальна валідація, запит не відправлено
+        console.error(e.errors);
+    } else if (e instanceof FiscalizationException) {
+        // e.code — msgCode банку; e.rawPayload.msgAttrs — назви проблемних полів
+        console.error(e.code, e.message);
+    }
+}
+```
+
+#### Повернення (REFUND)
+Для `REFUND` передавайте `operationId` операції повернення та лише позиції й кількості, що повертаються.
+
+### 4. Обробка callback фіскалізації
+Метод `handleFiscalizationCallback` **вимагає підписане тіло (compact JWS)** і першою дією перевіряє підпис; непідписаний
+JSON відхиляється з `ValidationException`. Лише для тестів/локальної розробки можна передати
+`handleFiscalizationCallback(body, { allowUnsigned: true })` — у production цей прапорець не використовуйте
+(те саме стосується `handleSubscriptionCallback`). Передавайте **сире**
+тіло запиту (у Express — `express.text({type: '*/*'})`), бо стандартний JSON body-parser може відхилити не-JSON тіло раніше.
+
+Результат — `FiscalizationCallbackDTO`: `cb.data` містить поля чека (`status`, `operationId`, `fiscalNumber`,
+`receiptUrl`, `errorCode`, …), `cb.has(field)` розрізняє «поле відсутнє в доставці» та «поле = null»,
+`cb.getRawPayload()` повертає сирий payload.
+
+#### Приклад використання (Express.js):
+```typescript
+import express from 'express';
+import { shouldApplyFiscalizationUpdate } from 'alliance-payment-hpp-integration-sdk';
+
+app.post('/fiscalization/callback', express.text({ type: '*/*' }), async (req, res) => {
+    try {
+        const cb = await client.handleFiscalizationCallback(req.body);
+
+        const stored = await db.findFiscalization(cb.data.operationId, cb.data.merchantRequestId);
+        if (shouldApplyFiscalizationUpdate(stored, cb.data)) {
+            await db.updateFiscalization(stored.id, {
+                status: cb.data.status,
+                fiscalNumber: cb.data.fiscalNumber,
+                receiptUrl: cb.data.receiptUrl,
+                errorCode: cb.data.errorCode,
+                errorDescription: cb.data.errorDescription,
+                callbackPayload: cb.getRawPayload(),
+            });
+        }
+
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('Fiscalization callback error:', error);
+        res.status(400).send('Error');
+    }
+});
+```
+
+### 5. Статуси та ідемпотентність
+| Статус    | Опис |
+|-----------|------|
+| `PENDING` | Чек поставлено в обробку, очікуйте callback. |
+| `SUCCESS` | Чек сформовано (`fiscalNumber`, `receiptUrl`). |
+| `FAIL`    | Помилка фіскалізації (`errorCode`, `errorDescription`). |
+
+Константи: `FISCALIZATION_STATUS`, `FISCALIZATION_OPERATION_TYPE`.
+
+`shouldApplyFiscalizationUpdate(current, incoming)` захищає від повторних і застарілих доставок:
+
+* `SUCCESS` не перезаписується іншим статусом;
+* `PENDING` не перезаписує фінальний статус;
+* застарілі дані (за `modificationDateTime`, із урахуванням часової зони) ігноруються.
+
+### 6. Валідація та помилки
+Валідація виконується **до** відправки запиту:
+
+* `products` — непорожній масив;
+* `count` — до 3 знаків після коми, `unitPrice` — до 2 знаків;
+* `taxCode` — ціле число > 0 (**0 недопустимий**);
+* `classificationCode` — лише цифри і **обов'язковий** для `taxCode` 2, 7, 8;
+* `exciseLabels` — лише непорожній масив (SDK перевіряє лише формат, підакцизність товару він не знає);
+* `id`, `name`, `notificationUrl` — до 255 символів (ліміт у документації банку не вказано — прийнято 255);
+* `null`-поля не відправляються.
+
+Помилки банку передаються як `FiscalizationException`; поле `code` (константи `FISCALIZATION_ERROR_CODES`):
+
+| `code`                       | Опис |
+|------------------------------|------|
+| `missing_required_field`     | HTTP 400: відсутнє обов'язкове поле (назви — у `rawPayload.msgAttrs`). |
+| `invalid_format`             | HTTP 400: невірний формат поля. |
+| `payment_not_found`          | HTTP 400: операцію `operationId` не знайдено. |
+| `original_receipt_not_found` | HTTP 400: для REFUND не знайдено оригінальний чек. |
+| `REQUEST_TIMEOUT`            | Таймаут запиту (див. `timeoutMs` вище). |
+
+5xx та мережеві помилки також повертаються як `FiscalizationException`.
+
+### 7. Важливі нюанси
+- Запит ідемпотентний за `operationId` на боці Ecom: повтор після `FAIL` поверне той самий `FAIL`.
+  Автоматичних ретраїв у SDK немає. Не відправляйте повторно, якщо для `operationId` уже є `PENDING`/`SUCCESS`
+  (окрім ручного «Оновити статус»).
+- Заголовок `x-api_version` до `/ecom/jws/cashbox/*` не додається.
+- Рекомендовані колонки таблиці: `order_id`, `operation_id` (unique), `operation_type`, `merchant_request_id` (unique),
+  `bucket_id`, `status`, `fiscal_number`, `receipt_url`, `fiscalization_date_time`, `fiscalization_modification_date_time`,
+  `error_code`, `error_description`, `request_payload`, `response_payload`, `callback_payload`, `created_at`, `updated_at`.
+- Версія пакета: 1.6.0.
